@@ -20,7 +20,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // ---------- helpers ----------
 class Bad extends Error {} // a mistake the person can fix; shown to them as-is
 const h = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(e =>
-  e instanceof Bad ? res.status(400).json({ error: e.message }) : (console.error(e), res.status(500).json({ error: "Something went wrong" })));
+  e instanceof Bad ? res.status(400).json({ error: e.message }) : e && (e.code === 8 || /RESOURCE_EXHAUSTED|Quota exceeded/i.test(String(e.message))) ? (console.error("Firestore daily free limit reached"), res.status(503).json({ error: "The shop has reached today’s free usage limit and will work again after it resets (around 1:30 pm IST). Please try again later." })) : (console.error(e), res.status(500).json({ error: "Something went wrong" })));
 const clean = (s, n) => String(s || "").trim().slice(0, n);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const same = (a, b) => { a = Buffer.from(String(a || "")); b = Buffer.from(String(b || "")); return b.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b); };
@@ -174,11 +174,14 @@ async function sendCustomerEmail(shop, o, kind) {
 // ---------- public: shop page data, photos, placing orders ----------
 const waOf = s => { const d = String(((s.business || {}).phone) || "").replace(/\D/g, ""); return d.length === 10 ? "91" + d : d.length >= 11 ? d : ""; }; // number for the WhatsApp button
 const when = d => { const c = d.data().createdAt; return c ? c.toDate().getTime() : 0; };
+let shopCache = null;
+app.use((req, res, next) => { if (req.method !== "GET") shopCache = null; next(); }); // any change made in the app clears the saved shop page
 app.get("/api/store/:slug", h(async (req, res) => {
+  if (shopCache && shopCache.slug === req.params.slug && Date.now() - shopCache.at < 30000) return res.json(shopCache.data); // same page for 30 seconds: far fewer database reads
   const s = await store(req.params.slug).get();
   if (!s.exists) return res.status(404).json({ error: "Store not found" });
   const [ps, tg, rv] = await Promise.all([sub(req, "products").where("active", "==", true).get(), sub(req, "tags").orderBy("pos").get(), sub(req, "reviews").orderBy("at", "desc").limit(6).get()]);
-  res.json({
+  const out = {
     name: s.data().name, maxQty: maxQtyOf(s.data()), phone: (s.data().business || {}).phone || "", tags: tg.docs.map(d => d.data().name),
     products: ps.docs.filter(d => !isExpired(d.data())).sort((a, b) => when(a) - when(b)).map(d => {
       const x = d.data(), photos = (x.photos || []).map(i => `/api/photo/${req.params.slug}/${i}`);
@@ -186,7 +189,8 @@ app.get("/api/store/:slug", h(async (req, res) => {
     }),
     wa: waOf(s.data()), hasUpi: !!(s.data().business || {}).upi, rating: (s.data().rev || {}).n ? { n: s.data().rev.n, avg: Math.round(10 * s.data().rev.sum / s.data().rev.n) / 10 } : null,
     reviews: rv.docs.map(d => d.data()).map(r => ({ name: r.name, rating: r.rating, text: r.text, at: r.at })),
-  });
+  };
+  shopCache = { slug: req.params.slug, at: Date.now(), data: out }; res.json(out);
 }));
 
 app.get("/api/photo/:slug/:id", h(async (req, res) => {
@@ -360,8 +364,9 @@ app.post(m + "/login", rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), h(asy
   res.json({ token: sign({ slug: req.params.slug, uid: u.id, exp: Date.now() + 30 * 864e5 }) });
 }));
 
+const storeSnap = (() => { let c = null; return async slug => { if (c && c.slug === slug && Date.now() - c.at < 30000) return c.s; const s = await store(slug).get(); c = { slug, s, at: Date.now() }; return s; }; })(); // the store record is re-read at most every 30 seconds, to save free database reads
 const auth = h(async (req, res, next) => {
-  const s = await store(req.params.slug).get();
+  const s = await storeSnap(req.params.slug);
   if (!s.exists) return res.status(401).json({ error: "Wrong key" });
   const k = req.get("x-key");
   if (k && (same(k, s.data().adminKey) || same(k, process.env.ADMIN_PASSWORD))) { req.who = { role: "owner", name: (s.data().profile || {}).name || "Owner", perms: { ...ALL, orderView: STATUSES }, viaStoreKey: same(k, s.data().adminKey) }; return next(); }
@@ -989,6 +994,9 @@ const PAGE = 100, OPEN = ["New", "Packed", "In transit"];
 const msOf = d => { const c = d.data().createdAt; return c && c.toDate ? c.toDate().getTime() : 0; };
 // The first call gives the newest 100 orders plus EVERY order still open (new / to dispatch / in transit), however old.
 // "before" gives the next 100 older ones. "q" and "unpaid" look through the whole shop (they read every order once).
+app.get(m + "/orders/ping", auth, need("orders"), h(async (req, res) => { // one tiny read: what is the newest order?
+  const s = await sub(req, "orders").orderBy("createdAt", "desc").limit(1).get(); res.json({ n: s.empty ? "" : s.docs[0].data().number });
+}));
 app.get(m + "/orders", auth, need("orders"), h(async (req, res) => {
   const col = sub(req, "orders"), q = String(req.query.q || "").trim().toLowerCase();
   let docs, more = false, cursor = null;

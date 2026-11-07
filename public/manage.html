@@ -281,7 +281,7 @@ async function login() {
     $("err").textContent = !user && /log in again/i.test(e.message) ? "That password or store key doesn’t match this store. Staff: please type your username too." : e.message;
   }
 }
-if (!slug) document.body.innerHTML = '<p style="padding:20px">Could not reach the shop. Please reload.</p>';
+if (!slug) document.body.innerHTML = '<p style="padding:20px">' + (CFG && CFG.error ? CFG.error : "Could not reach the shop. Please reload.") + '</p>';
 else if (key || tok) start().catch(() => { try { localStorage.removeItem(SK); } catch (e) {} key = ""; tok = ""; $("err").textContent = "Please log in again."; });
 const act = async f => { try { await f(); await load(); } catch (e) { alert(e.message); } draw(); };
 const theme = () => { try { const t = localStorage.getItem("theme"); return t == "light" || t == "dark" ? t : "auto"; } catch (e) { return "auto"; } };
@@ -332,14 +332,16 @@ function glide() {
 }
 
 // new orders appear without reloading: check every 30 seconds
+let lastPing = null; // one tiny check first; the full list is only fetched when a new order has really arrived
 setInterval(async () => {
   if (document.hidden || $("app").hidden || !can("orders")) return;
   try {
+    const pg = await api(base + "/orders/ping"); if (lastPing === null) lastPing = O.length ? O[0].number : ""; if (pg.n === lastPing) return; lastPing = pg.n;
     const r = await api(base + "/orders"), un = a => a.filter(o => o.seen === false).length, was = O.length, wasUn = un(O), sig = JSON.stringify(O.map(o => [o.number, o.status]));
     mergeO(r.orders); const changed = O.length != was || un(O) != wasUn || sig != JSON.stringify(O.map(o => [o.number, o.status]));
     if (changed) { SUM = await api(base + "/summary").catch(() => SUM); $("dlg").open ? drawNav() : draw(); }
   } catch (e) {}
-}, 30000);
+}, 60000);
 
 // ----- money and status helpers -----
 const DL = { New: "New", Packed: "To dispatch", "In transit": "In transit", Delivered: "Delivered", Cancelled: "Cancelled" };

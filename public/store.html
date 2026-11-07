@@ -149,7 +149,7 @@ const heartFill = (z = 18) => `<svg width="${z}" height="${z}" viewBox="0 0 24 2
 
 let shop = { tags: [], products: [], reviews: [] }, loaded = false, failed = false;
 let cart = {}; try { cart = JSON.parse(LS.get("cart") || "{}") || {}; } catch (e) { cart = {}; }
-let token = LS.get("tok") || "", me = null, stack = [], view = ["home"], tag = "", q = "", ofil = "All", pay = "Cash", gi = { name: "", phone: "", address: "", email: "", note: "" }, addrId = "", form = null, otp = { email: "", sent: false, at: 0 }, placed = null, msg = "", busy = false, pimg = 0, pq = 1, keepSearch = false;
+let token = LS.get("tok") || "", me = null, stack = [], view = ["home"], tag = "", q = "", ofil = "All", pay = "Cash", gi = { name: "", phone: "", address: "", email: "", note: "" }, addrId = "", form = null, otp = { email: "", sent: false, at: 0 }, placed = null, msg = "", busy = false, pimg = 0, pq = 1, keepSearch = false, failMsg = "";
 
 // ---- talking to the server ----
 async function api(path, method, body) {
@@ -159,7 +159,7 @@ async function api(path, method, body) {
   if (!r.ok) throw new Error(j.error || "Something went wrong. Please try again.");
   return j;
 }
-async function loadShop() { try { shop = await api(""); document.title = shop.name; loaded = true; failed = false; } catch (e) { failed = true; } render(); }
+async function loadShop() { try { shop = await api(""); document.title = shop.name; loaded = true; failed = false; } catch (e) { failed = true; failMsg = e.message || ""; } render(); }
 async function loadMe() { if (!token) return; try { me = await api("/c/me"); } catch (e) { me = null; } render(); }
 function toast(t) { let n = $("toast"); if (!n) { n = document.createElement("div"); n.id = "toast"; n.className = "toast"; n.setAttribute("role", "status"); document.body.appendChild(n); } n.textContent = t; n.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => n.style.display = "none", 3200); }
 
@@ -476,7 +476,7 @@ const ACCT = ["account", "profile", "addresses", "orders", "track", "wishlist", 
 const NOBAR = ["product", "checkout", "cart", "profile", "search", "login"];
 function render() {
   const app = $("app"); if (!app) return;
-  if (failed) { app.innerHTML = '<p class="empty">Store not found.</p>'; return; }
+  if (failed) { app.innerHTML = '<p class="empty">' + esc(/free usage limit/.test(failMsg) ? failMsg : "Store not found.") + '</p>'; return; }
   if (!loaded) { app.innerHTML = '<p class="empty">Loading…</p>'; return; }
   const v = view[0], ae = document.activeElement, focus = ae && ae.id, pos = ae && ae.selectionStart, n = cartCount();
   const fixedBar = ["product", "checkout", "cart", "profile"].includes(v) || (v === "addresses" && form) || (v === "login" && !otp.sent && false);
