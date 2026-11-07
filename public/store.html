@@ -290,7 +290,7 @@ function product() {
 }
 function brandView() {
   const b = view[1], list = shop.products.filter(p => (p.brand || "").trim().toLowerCase() === String(b).trim().toLowerCase()), n = list.length;
-  return hdr(b, { sub: n + " product" + (n == 1 ? "" : "s") }) + (n ? `<div class="grid">${groups(list).map(p => card(p, "", 1)).join("")}</div>` : '<p class="empty">No products from this brand right now.</p>');
+  return hdr(b, { sub: n + " product" + (n == 1 ? "" : "s") }) + (n ? `<div class="grid">${[...list].sort((x, y) => x.name.localeCompare(y.name)).map(p => card(p, "", 1)).join("")}</div>` : '<p class="empty">No products from this brand right now.</p>');
 }
 function pickOpt(id, i, v) {
   const cur = find(id), S = sibs(cur), f = i ? "o2" : "o1", o = i ? "o1" : "o2", next = S.find(x => x[f] === v && x[o] === cur[o]) || S.find(x => x[f] === v);
