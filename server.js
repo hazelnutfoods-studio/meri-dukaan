@@ -182,7 +182,7 @@ app.get("/api/store/:slug", h(async (req, res) => {
     name: s.data().name, maxQty: maxQtyOf(s.data()), phone: (s.data().business || {}).phone || "", tags: tg.docs.map(d => d.data().name),
     products: ps.docs.filter(d => !isExpired(d.data())).sort((a, b) => when(a) - when(b)).map(d => {
       const x = d.data(), photos = (x.photos || []).map(i => `/api/photo/${req.params.slug}/${i}`);
-      return { id: d.id, name: x.name, price: x.price, mrp: x.mrp > x.price ? x.mrp : 0, description: x.description || "", qty: x.qty == null ? null : sellable(x), tags: x.tags || [], group: x.mergeUnder || d.id, kind: x.kind || "general", o1: x.o1 || "", o2: x.o2 || "", sold: x.sold || 0, featured: !!x.featured, at: when(d), photos: photos.length ? photos : (x.image ? [x.image] : []) };
+      return { id: d.id, name: x.name, price: x.price, mrp: x.mrp > x.price ? x.mrp : 0, description: x.description || "", qty: x.qty == null ? null : sellable(x), tags: x.tags || [], group: x.mergeUnder || d.id, kind: x.kind || "general", brand: x.brand || "", o1: x.o1 || "", o2: x.o2 || "", sold: x.sold || 0, featured: !!x.featured, at: when(d), photos: photos.length ? photos : (x.image ? [x.image] : []) };
     }),
     wa: waOf(s.data()), hasUpi: !!(s.data().business || {}).upi, rating: (s.data().rev || {}).n ? { n: s.data().rev.n, avg: Math.round(10 * s.data().rev.sum / s.data().rev.n) / 10 } : null,
     reviews: rv.docs.map(d => d.data()).map(r => ({ name: r.name, rating: r.rating, text: r.text, at: r.at })),
@@ -552,6 +552,7 @@ async function fields(req, b) {
     if (b.name !== undefined) { u.name = clean(b.name, 100); if (!u.name) throw new Bad("Enter a product name."); }
     if (b.description !== undefined) u.description = clean(b.description, 300);
     if (b.supplier !== undefined) u.supplier = clean(b.supplier, 80);
+    if (b.brand !== undefined) u.brand = clean(b.brand, 60);
     if (b.sku !== undefined) u.sku = clean(b.sku, 24).toUpperCase();
     if (b.barcode !== undefined) { const c = String(b.barcode || "").replace(/\s+/g, ""); if (c && !/^[0-9]{6,14}$/.test(c)) throw new Bad("A barcode (EAN) is 6 to 14 digits, numbers only."); u.barcode = c; }
     if (b.mergeUnder !== undefined) u.mergeUnder = clean(b.mergeUnder, 40); // checked in checkMerge()
@@ -929,6 +930,18 @@ app.delete(m + "/purchases/:number", auth, ownerOnly, h(async (req, res) => {
 app.post(m + "/purchase-drafts", auth, ownerOnly, h(async (req, res) => {
   const ref = req.body.id && /^[A-Za-z0-9]{1,40}$/.test(String(req.body.id)) ? sub(req, "drafts").doc(String(req.body.id)) : sub(req, "drafts").doc();
   await ref.set({ data: { ...purchaseOf(req.body, todayStr()), kind: "purchase" }, savedAt: stamp() }); res.json({ id: ref.id });
+}));
+
+// ----- brands: a list to pick from when editing a product (optional on every product) -----
+app.get(m + "/brands", auth, h(async (req, res) => {
+  const s = await sub(req, "brands").get();
+  res.json(s.docs.map(d => d.data().name).filter(Boolean).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" })));
+}));
+app.post(m + "/brands", auth, need("add"), h(async (req, res) => {
+  const name = clean(req.body.name, 60); if (!name) throw new Bad("Type the brand name.");
+  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "brand", ref = sub(req, "brands").doc(id), cur = await ref.get();
+  if (cur.exists) return res.json({ name: cur.data().name, existed: true }); // same brand typed twice: use the one already there
+  await ref.set({ name, createdAt: stamp() }); res.json({ name });
 }));
 
 // ----- suppliers -----
