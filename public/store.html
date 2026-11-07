@@ -105,7 +105,10 @@ button{cursor:pointer}a{color:inherit}
 <body>
 <div id="app"></div>
 <script>
-const CFG = window.__CFG || (() => { try { const x = new XMLHttpRequest(); x.open("GET", "/api/config", false); x.send(); return JSON.parse(x.responseText) || {}; } catch (e) { return {}; } })();
+const CFG = window.__CFG || (() => { // remembered from last time so the page opens at once; checked again in the background
+  try { const c = JSON.parse(localStorage.getItem("cfg") || "null"); if (c && c.slug) { fetch("/api/config").then(r => r.json()).then(j => { if (j.slug && j.slug !== c.slug) { localStorage.setItem("cfg", JSON.stringify(j)); location.reload(); } }).catch(() => {}); return c; } } catch (e) {}
+  try { const x = new XMLHttpRequest(); x.open("GET", "/api/config", false); x.send(); const j = JSON.parse(x.responseText) || {}; try { if (j.slug) localStorage.setItem("cfg", JSON.stringify(j)); } catch (e) {} return j; } catch (e) { return {}; }
+})();
 const slug = CFG.slug || "";
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -227,7 +230,7 @@ function drawHits() {
 }
 function product() {
   const p = find(view[1]); if (!p) return hdr("Not found") + '<p class="empty">This product is no longer available.</p>';
-  const S = sibs(p), L = KIND[S.some(x => x.kind == "food") ? "food" : "general"];
+  const S = sibs(p), L = KIND.food;
   const opts = S.length < 2 ? "" : [0, 1].map(i => { const f = i ? "o2" : "o1", vals = [...new Set(S.map(x => x[f]).filter(Boolean))]; return vals.length ? `<div style="margin-top:18px;font-size:13px;font-weight:800;letter-spacing:.06em;color:var(--mute)">${L[i].toUpperCase()}</div><div class="opts">${vals.map(v => `<button class="${p[f] === v ? "on" : ""} ${S.filter(x => x[f] === v).every(x => left(x) <= 0) ? "oos" : ""}" data-v="${esc(v)}" onclick="pickOpt('${p.id}',${i},this.dataset.v)">${esc(v)}</button>`).join("")}</div>` : ""; }).join("");
   const n = cart[p.id] || 0, so = left(p) <= 0, photos = p.photos, ph = Math.min(pimg, Math.max(photos.length - 1, 0));
   const stock = so ? `<span style="width:9px;height:9px;border-radius:50%;background:var(--red)"></span>Out of stock` : p.qty === null ? `<span style="width:9px;height:9px;border-radius:50%;background:var(--ok)"></span>In stock` : `<span style="width:9px;height:9px;border-radius:50%;background:var(--ok)"></span>${p.qty} left`;
@@ -237,7 +240,7 @@ function product() {
     <div style="margin-top:${photos.length > 1 ? 18 : 4}px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${p.tags[0] ? `<span class="pill" style="font-size:13px;padding:5px 12px">${esc(p.tags[0])}</span>` : ""}<span class="pill ${so ? "bad" : "ok"}">${so ? "Out of stock" : "In stock"}</span></div>
     <h1 style="margin:10px 0 0;font-size:28px;line-height:1.15;font-weight:800">${esc(p.name)}</h1>
     <div style="margin-top:14px;display:flex;align-items:center;gap:10px"><div style="font-size:32px;font-weight:800;line-height:1">₹${p.price}</div>${p.mrp ? `<div style="font-size:17px;color:var(--mute);text-decoration:line-through;font-weight:600">₹${p.mrp}</div><div class="pill y" style="font-size:13px;letter-spacing:0;border-radius:10px;padding:5px 10px">${pct(p)}% OFF</div>` : ""}</div>${opts}
-    <div class="facts"><div><small>STOCK</small><b>${stock}</b></div>${sub(p) ? `<div><small>${S.some(x => x.kind == "food") ? "PACK" : "OPTION"}</small><b>${esc(sub(p))}</b></div>` : ""}</div>
+    <div class="facts"><div><small>STOCK</small><b>${stock}</b></div>${sub(p) ? `<div><small>PACK</small><b>${esc(sub(p))}</b></div>` : ""}</div>
     ${p.description ? `<h2 style="margin:22px 0 0;font-size:18px;font-weight:800">Description</h2><p style="margin:6px 0 0;font-size:15px;line-height:1.55;color:var(--mute);font-weight:500">${esc(p.description)}</p>` : ""}
     <div style="margin-top:16px;padding:14px 16px;border-radius:18px;background:var(--lav2);border:1px solid var(--line);display:flex;align-items:center;gap:12px;color:var(--pu)">${ic("truck", 24)}<div style="font-size:14px;line-height:1.4;font-weight:600;color:var(--ink)">Pay by cash or UPI. Delivery charges will be added in the final invoice.</div></div></div>
     <div class="bar"><div>${so ? '<button class="pbtn" disabled>Sold out</button>' : n ? `<div class="qty"><button aria-label="Remove one" onclick="chg('${p.id}',-1)">${ic("minus", 18, 2.6)}</button><b>${n}</b><button aria-label="Add one" onclick="chg('${p.id}',1)">${ic("plus", 18, 2.6)}</button></div><button class="pbtn" onclick="go('cart')">Go to cart · ₹${cartTotal()}</button>` : `<div class="qty"><button aria-label="Remove one" disabled style="opacity:.4">${ic("minus", 18, 2.6)}</button><b>1</b><button aria-label="Add one" disabled style="opacity:.4">${ic("plus", 18, 2.6)}</button></div><button class="pbtn" onclick="chg('${p.id}',1)">Add to cart · ₹${p.price}</button>`}</div></div>`;
