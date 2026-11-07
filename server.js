@@ -629,7 +629,7 @@ app.post(m + "/products", auth, need("add"), h(async (req, res) => {
     const n = await db.runTransaction(async t => { const st = await t.get(store(req.params.slug)), k = (st.data().skuSeq || 0) + 1; t.update(st.ref, { skuSeq: k }); return k; });
     u.sku = "SKU-" + String(n).padStart(4, "0");
   }
-  const doc = { description: "", supplier: "", cost: null, qty: 0, lowAt: 5, expiry: "", tags: [], photos: [], price: 0, active: false, kind: "food", ...u, createdAt: stamp() };
+  const doc = { description: "", supplier: "", brand: "", cost: null, qty: 0, lowAt: 5, expiry: "", tags: [], photos: [], price: 0, active: false, kind: "food", ...u, createdAt: stamp() };
   Object.assign(doc, withBatches(null, { qty: doc.qty, expiry: doc.expiry }));
   checkLive(doc);
   const r = await sub(req, "products").add(doc);
@@ -691,7 +691,7 @@ app.delete(m + "/products/:id", auth, ownerOnly, h(async (req, res) => {
 app.post(m + "/products/:id/photos", auth, need("add"), h(async (req, res) => {
   const ref = sub(req, "products").doc(req.params.id), p = await ref.get();
   if (!p.exists) throw new Bad("Product not found.");
-  if ((p.data().photos || []).length >= 5) throw new Bad("You can add up to 5 photos per product.");
+  if ((p.data().photos || []).length >= 8) throw new Bad("You can add up to 8 photos per product.");
   const mt = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body.data || ""));
   if (!mt) throw new Bad("Please choose a photo.");
   const buf = Buffer.from(mt[2], "base64");
@@ -700,6 +700,11 @@ app.post(m + "/products/:id/photos", auth, need("add"), h(async (req, res) => {
   await sub(req, "photos").doc(id).set({ type: mt[1], data: buf, createdAt: stamp() });
   await ref.update({ photos: FV.arrayUnion(id) });
   res.json({ id });
+}));
+app.put(m + "/products/:id/photos/:pid/cover", auth, need("add"), h(async (req, res) => { // the first photo is the cover
+  const ref = sub(req, "products").doc(req.params.id), p = await ref.get(); if (!p.exists) throw new Bad("Product not found.", 404);
+  const ph = p.data().photos || []; if (!ph.includes(req.params.pid)) throw new Bad("Photo not found.", 404);
+  await ref.update({ photos: [req.params.pid, ...ph.filter(x => x !== req.params.pid)] }); res.json({ ok: true });
 }));
 app.delete(m + "/products/:id/photos/:pid", auth, need("add"), h(async (req, res) => {
   await sub(req, "products").doc(req.params.id).update({ photos: FV.arrayRemove(req.params.pid) });
@@ -765,6 +770,7 @@ app.post(m + "/products-import", auth, ownerOnly, h(async (req, res) => {
     if (sku) d.sku = sku;
     if (cell(r.description, 300)) d.description = cell(r.description, 300);
     if (cell(r.supplier, 80)) d.supplier = cell(r.supplier, 80);
+    if (cell(r.brand, 60)) d.brand = cell(r.brand, 60);
     if (cell(r.o1, 40)) d.o1 = cell(r.o1, 40);
     if (cell(r.o2, 40)) d.o2 = cell(r.o2, 40);
     for (const [k, label, whole] of [["price", "selling price"], ["cost", "purchase price"], ["qty", "quantity", 1], ["lowAt", "low-stock alert", 1]]) {
@@ -780,8 +786,9 @@ app.post(m + "/products-import", auth, ownerOnly, h(async (req, res) => {
     work.push({ res: res1, d, ex, note });
   });
   // work out what each product will look like, and what is still missing
-  const newTags = new Set();
+  const newTags = new Set(), newBrands = new Map(), knownBrands = new Map((await sub(req, "brands").get()).docs.map(x => [x.data().name.toLowerCase(), x.data().name]));
   work.forEach(w => {
+    if (w.d.brand) { const k = knownBrands.get(w.d.brand.toLowerCase()); if (k) w.d.brand = k; else { knownBrands.set(w.d.brand.toLowerCase(), w.d.brand); newBrands.set(w.d.brand.toLowerCase(), w.d.brand); } }
     w.d.tagNames = w.d.tagNames.map(t => { const k = tagNames.get(t.toLowerCase()); if (k) return k; newTags.add(t.slice(0, 30)); tagNames.set(t.toLowerCase(), t.slice(0, 30)); return t.slice(0, 30); });
     const merged = { photos: [], ...(w.ex ? w.ex.data() : { cost: null, qty: null, price: 0 }), ...Object.fromEntries(Object.entries(w.d).filter(([k]) => ["name", "price", "cost", "qty"].includes(k))) };
     w.after = merged; w.res.missing = missingOf(merged);
@@ -797,6 +804,7 @@ app.post(m + "/products-import", auth, ownerOnly, h(async (req, res) => {
   let seq = (await ref.get()).data().skuSeq || 0;
   const tagColl = sub(req, "tags"), maxPos = Math.max(Date.now(), ...known.map(d => d.data().pos || 0));
   [...newTags].forEach((n, i) => ops.push(b => b.set(tagColl.doc(), { name: n, pos: maxPos + i + 1 })));
+  [...newBrands.values()].forEach(n => { const id = n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "brand"; ops.push(b => b.set(sub(req, "brands").doc(id), { name: n, createdAt: stamp() })); });
   const ids = new Map(); // sku/name -> product id, for "merged under"
   existing.forEach(d => { const x = d.data(); if (x.sku) ids.set(x.sku.toUpperCase(), d.id); });
   work.forEach(w => {

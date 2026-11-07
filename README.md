@@ -82,7 +82,7 @@ The shop sends email for three things: the **login code** customers type to sign
 ## The mobile screens (Home, Products, Orders, New invoice, Account)
 - **Home:** your photo, greeting and name (tap to open Account), search and bell, then Overview with Today / 30 days / Year, the sales card (revenue, profit, collected), the order pipeline, Needs attention (**Reorder** opens WhatsApp to the product's supplier, using the phone number under Suppliers), recent orders, and the Online store card with your link, Copy, Share on WhatsApp and a QR code.
 - **+ button:** opens **Create new** with New product and New invoice. Staff who can add products go straight to New product.
-- **Products:** search by name or product code, category chips (your Tags), filter button, stock badges, and a sheet with price, cost, stock, expiry, online-store switch, **Adjust stock** and **Edit product**.
+- **Products:** search by name or product code, category chips (your Tags), filter button, stock badges, and a sheet with price, cost, stock, expiry, online-store switch, **Update stock** and **Edit product**.
 - **Orders:** In-Process, Confirmed and All. New orders can be edited and confirmed or rejected. Confirmed orders have Record payment, View invoice, Share invoice and Send reminder. Drafts live under All.
 - **New invoice (owner only):** bill a counter sale (**At store**, handed over at once) or a phone order (**Online**, ready to dispatch). Pick products, payment, discount, GST and notes. Stock goes down when you tap **Create invoice**, never for a draft. The discount comes off first, then GST is added.
 - **Invoices (owner):** **More → Invoices** (or the Manage card on Home) lists every invoice with its number, customer, amount, date and payment status. Filter by All, Unpaid, Paid or Cancelled, search by number, name or phone, and see what is billed, collected and still due. Each one has View, Share on WhatsApp, Remind and Delete.
@@ -105,7 +105,7 @@ The shop sends email for three things: the **login code** customers type to sign
 ## Editing, expiry, stock safety and cancelled invoices
 - **Edit an invoice:** owner only. Tap **Edit** on an order or on the Invoices list (also inside View order). You can change the customer, At store / Online, address, products and quantities, discount, GST and notes. Stock follows the change: removing items puts them back, adding items takes them out. Prices of items already on the invoice stay as they were; newly added items use today's price. Payments are changed with **Record payment**, and the new total can't be less than what is already paid. Cancelled invoices can't be edited.
 - **Expired items:** an item whose expiry date has passed (by Indian date; the expiry day itself is still sellable) is hidden from the online shop and blocked at checkout with a clear message, even if it is already in someone's cart. It stays on your Needs attention list. On New invoice and Edit invoice it shows an **Expired** tag and asks you to confirm before adding.
-- **Stock numbers stay right:** Edit product only sends the quantity if you changed it. If stock moved while the form was open (for example a customer bought something), the app says "Stock changed from 49 to 44 while you were editing" and saves nothing. **Adjust stock** now has two modes: **Add or remove** (+10 received, −2 damaged; added to the latest stock) and **Set exact count** (a recount, with the same warning if stock moved).
+- **Stock numbers stay right:** Edit product only sends the quantity if you changed it. If stock moved while the form was open (for example a customer bought something), the app says "Stock changed from 49 to 44 while you were editing" and saves nothing. **Update stock** now has two modes: **Add or remove** (+10 received, −2 damaged; added to the latest stock) and **Set exact count** (a recount, with the same warning if stock moved).
 - **Cancelled invoices:** the invoice page shows a large red CANCELLED with the date and "Nothing to pay". Share invoice and Reminder are hidden, and **Share cancellation** replaces them. If the customer had paid, it shows **Refund due**; tap **Record refund** once you have returned the money and it changes to **Refunded**. Links you sent earlier update too.
 
 ## Look and feel, titles and WhatsApp messages
@@ -127,7 +127,7 @@ The shop sends email for three things: the **login code** customers type to sign
 - A sale always takes from the batch that expires first. Expired batches are never sold, and they are hidden from the shop.
 - On an order that is waiting to be packed, each item shows which expiry to pack, with a tick box to verify it.
 - While packing, tap **Change expiry** under an item to pick a different batch (or split it across batches). It starts on the nearest expiry; **Nearest expiry first** puts it back.
-- To add stock use **Adjust stock** (give the expiry date) or give an expiry on each line of a purchase.
+- To add stock use **Update stock** (give the expiry date) or give an expiry on each line of a purchase.
 
 ## Invoices
 - Sales and purchase invoices have a **Scan** button next to **Add product**. If the barcode is not in your shop, a **Product not found** box offers **Add manually**.
@@ -136,6 +136,8 @@ The shop sends email for three things: the **login code** customers type to sign
 - On an invoice page, **Share** sends the invoice PDF (or its link) and **Download PDF** saves a real PDF file. This works on iPhone, Android and computers.
 - On the **Invoices** page, the PDF icon at the top exports a report: pick Purchase or Sales, a From and To date, and one customer/supplier or all.
 - Expiry is entered as month and year (for example 10/2027). The stock stays sellable through the last day of that month.
+
+- Every product can have an optional **Brand**: search the list, pick one, or type a new brand and tap **Add brand**. The brand shows on the shop's product page and is searchable.
 
 ## Customers
 - **Customers** (owner only) lists everyone who made an account on the shop: name, email, number of orders, purchase value and paid value. Cancelled orders are not counted.
@@ -151,3 +153,6 @@ The shop sends email for three things: the **login code** customers type to sign
 - If you change an environment variable later, go to **Deployments** and redeploy so it takes effect.
 - Never upload your Firebase file or passwords to GitHub. They only go in Vercel's Environment Variables.
 - Product photos are links to images that are already online.
+
+- **Excel and brand:** Export now includes a Brand column. Import accepts an Excel (.xlsx) file directly, or a CSV; new brands are added to the Brand list automatically.
+- **Product pages:** Add/Edit product is one tidy page (photos with a cover, stock with expiry and extra batches, search-and-pick Brand/Supplier/Merge under, weight with g/kg/pcs, Live/Featured switches, sticky Save bar). Product details shows price, stock by expiry, and quick “+ Add” links. **Update stock** adds or removes stock.
