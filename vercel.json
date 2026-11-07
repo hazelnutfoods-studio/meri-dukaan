@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/s/:slug", "destination": "/store.html" },
+    { "source": "/manage", "destination": "/manage.html" },
+    { "source": "/invoice/:slug/:number", "destination": "/invoice.html" },
+    { "source": "/", "destination": "/store.html" }
+  ]
+}
