@@ -17,6 +17,7 @@ h1{margin:0;font-size:1.4rem}.tag{font-weight:800;letter-spacing:2px;color:var(-
 .nm{flex:1;min-width:0}.nm b{display:block}.amt{font-weight:700;white-space:nowrap}
 .sum{margin-top:12px}.sum div{display:flex;justify-content:space-between;padding:3px 0}.sum .t{font-size:1.2rem;font-weight:800;border-top:2px solid var(--line);margin-top:6px;padding-top:8px}
 .cancel{margin:12px 0 0;border:2px solid var(--er);border-radius:14px;padding:10px 14px;text-align:center;color:var(--er)}.cancel b{display:block;font-size:1.5rem;letter-spacing:3px}.void{opacity:.55}.st{display:inline-block;margin-top:8px;padding:3px 12px;border-radius:999px;font-weight:700;font-size:.82rem}.paid{background:rgba(18,128,92,.15);color:var(--ok)}.unpaid{background:rgba(179,38,30,.13);color:var(--er)}
+button.g{background:transparent;color:var(--ac);border:2px solid var(--ac)}.foot button{margin:16px 6px 0}
 button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:11px 18px;background:var(--ac);color:var(--on);cursor:pointer;margin-top:16px}
 .err{text-align:center;padding:60px 0}.foot{text-align:center;margin-top:16px}
 @media print{body{background:#fff;color:#000;padding:0}.inv{border:0;margin:0;max-width:none}.noprint{display:none}}
@@ -38,8 +39,22 @@ fetch(`/api/invoice/${encodeURIComponent(slug)}/${encodeURIComponent(number)}${l
   <div class="sum">${d.discount > 0 || d.gst > 0 || d.packing > 0 || d.delivery > 0 ? `<div class="mute"><span>Subtotal</span><span>${inr(d.subtotal)}</span></div>` : ""}${d.discount > 0 ? `<div class="mute"><span>Discount</span><span>−${inr(d.discount)}</span></div>` : ""}${d.gst > 0 ? `<div class="mute"><span>GST ${d.gstRate}%</span><span>${inr(d.gst)}</span></div>` : ""}${d.packing > 0 ? `<div class="mute"><span>Packaging charges</span><span>${inr(d.packing)}</span></div>` : ""}${d.delivery > 0 ? `<div class="mute"><span>Delivery charges</span><span>${inr(d.delivery)}</span></div>` : ""}<div class="t"><span>Total</span><span>${inr(d.total)}</span></div><div class="mute"><span>Paid</span><span>${inr(d.paid)}</span></div>${canc ? `<div class="mute"><span>Nothing to pay</span><span>${inr(0)}</span></div>` + (d.refundDue > 0 ? `<div class="t" style="color:var(--er)"><span>Refund due</span><span>${inr(d.refundDue)}</span></div>` : "") + (d.refunded > 0 ? `<div class="t" style="color:var(--ok)"><span>Refunded</span><span>${inr(d.refunded)}</span></div>` : "") : `<div class="mute"><span>Balance due</span><span>${inr(d.due)}</span></div>`}</div>
   ${d.notes ? `<p class="mute" style="margin:12px 0 0">Note: ${esc(d.notes)}</p>` : ""}
   ${canc ? "" : `<span class="st ${d.due <= 0 ? "paid" : "unpaid"}">${d.due <= 0 ? "PAID" + (d.methods.length ? " · " + esc([...new Set(d.methods)].join(", ")) : "") : "PAYMENT PENDING"}</span>`}
-  <div class="foot noprint"><button onclick="print()">Print or save as PDF</button></div>`;
+  <div class="foot noprint"><button onclick="shareInv()">Share</button><button class="g" onclick="downloadInv()">Download PDF</button><p class="mute" id="invmsg" style="margin:10px 0 0"></p></div>`;
 }).catch(() => { $("inv").innerHTML = '<p class="err">This invoice link is not valid.<br><span class="mute">Please ask the shop to send it again.</span></p>'; });
+const pdfUrl = dl => `/api/invoice/${encodeURIComponent(slug)}/${encodeURIComponent(number)}/pdf${location.search}${location.search ? "&" : "?"}dl=${dl}`;
+const say = t => { const m = $("invmsg"); if (m) m.textContent = t; };
+// Download: the server sends a real PDF file, so it works on iPhone, Android and computers (no print dialog needed)
+function downloadInv() { say("Preparing your PDF…"); location.href = pdfUrl(1); setTimeout(() => say(""), 4000); }
+// Share: sends the PDF itself where the phone allows it, otherwise the invoice link
+async function shareInv() {
+  const title = document.title, link = location.href;
+  try {
+    const r = await fetch(pdfUrl(0)); const f = new File([await r.blob()], "Invoice-" + number + ".pdf", { type: "application/pdf" });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title }); return; }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  try { if (navigator.share) { await navigator.share({ title, url: link }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(link); say("Link copied. You can paste it in any chat."); } catch (e) { prompt("Copy this invoice link:", link); }
+}
 function $(id) { return document.getElementById(id); }
 </script>
 </body>

@@ -126,11 +126,16 @@ The shop sends email for three things: the **login code** customers type to sign
 - Open a product to see **Stock by expiry**, soonest first. Tap **Edit** on a batch to fix its count or date (put 0 to remove it).
 - A sale always takes from the batch that expires first. Expired batches are never sold, and they are hidden from the shop.
 - On an order that is waiting to be packed, each item shows which expiry to pack, with a tick box to verify it.
+- While packing, tap **Change expiry** under an item to pick a different batch (or split it across batches). It starts on the nearest expiry; **Nearest expiry first** puts it back.
 - To add stock use **Adjust stock** (give the expiry date) or give an expiry on each line of a purchase.
 
 ## Invoices
 - Sales and purchase invoices have a **Scan** button next to **Add product**. If the barcode is not in your shop, a **Product not found** box offers **Add manually**.
 - Sales invoices have **Packaging charges** and **Delivery charges**. They are added to the total after GST and show on the printed invoice.
+
+- On an invoice page, **Share** sends the invoice PDF (or its link) and **Download PDF** saves a real PDF file. This works on iPhone, Android and computers.
+- On the **Invoices** page, the PDF icon at the top exports a report: pick Purchase or Sales, a From and To date, and one customer/supplier or all.
+- Expiry is entered as month and year (for example 10/2027). The stock stays sellable through the last day of that month.
 
 ## Customers
 - **Customers** (owner only) lists everyone who made an account on the shop: name, email, number of orders, purchase value and paid value. Cancelled orders are not counted.

@@ -3,6 +3,7 @@ const rateLimit = require("express-rate-limit");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 const path = require("path");
+const fs = require("fs");
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) { console.error("Missing FIREBASE_SERVICE_ACCOUNT"); process.exit(1); }
 admin.initializeApp({ credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
@@ -1146,21 +1147,108 @@ app.post(m + "/orders/:number/payments", auth, ownerOnly, h(async (req, res) => 
 }));
 
 // ---------- invoice: created from the order, opened with a private link ----------
-app.get("/api/invoice/:slug/:number", h(async (req, res) => {
-  const nf = () => res.status(404).json({ error: "Invoice not found" });
-  if (!same(req.query.k, invSig(req.params.slug, req.params.number))) return nf();
+async function invoiceData(req) { // everything an invoice page or PDF needs; null if the link is wrong
+  if (!same(req.query.k, invSig(req.params.slug, req.params.number))) return null;
   const [s, o] = await Promise.all([store(req.params.slug).get(), sub(req, "orders").doc(req.params.number).get()]);
-  if (!s.exists || !o.exists) return nf();
+  if (!s.exists || !o.exists) return null;
   const d = o.data();
   const lines = await Promise.all((d.lines || []).map(async l => {
     let ph = l.photo; if (!ph && l.id) { const p = await sub(req, "products").doc(l.id).get(); ph = p.exists ? (p.data().photos || [])[0] : ""; }
     return { name: l.name, qty: l.qty, price: l.price, amount: l.price * l.qty, photo: ph ? `/api/photo/${req.params.slug}/${ph}` : "" };
   }));
-  res.json({ store: s.data().name, number: d.number, date: d.createdAt ? d.createdAt.toDate().toISOString() : null, name: d.name, phone: d.phone, address: d.address,
+  return ({ store: s.data().name, number: d.number, date: d.createdAt ? d.createdAt.toDate().toISOString() : null, name: d.name, phone: d.phone, address: d.address,
     lines, subtotal: d.subtotal == null ? d.total : d.subtotal, discount: d.discount || 0, gstRate: d.gstRate || 0, gst: d.gst || 0, packing: d.packing || 0, delivery: d.delivery || 0, notes: d.notes || "", channel: d.channel || "online",
     business: { address: (s.data().business || {}).address || "", gstin: (s.data().business || {}).gstin || "", phone: (s.data().business || {}).phone || "" },
     total: d.total, paid: d.paid || 0, due: d.status === "Cancelled" ? 0 : Math.max(0, d.total - (d.paid || 0)), methods: (d.payments || []).map(p => p.method), status: d.status,
     cancelledAt: d.cancelledAt && d.cancelledAt.toDate ? d.cancelledAt.toDate().toISOString() : null, refunded: d.refunded || 0, refundDue: d.status === "Cancelled" ? Math.max(0, (d.paid || 0) - (d.refunded || 0)) : 0 });
+
+}
+app.get("/api/invoice/:slug/:number", h(async (req, res) => { const d = await invoiceData(req); if (!d) return res.status(404).json({ error: "Invoice not found" }); res.json(d); }));
+
+// ---------- PDFs: one invoice (opened or downloaded from the invoice page) and a report of many invoices (owner) ----------
+const FONTS = (() => { try { return { r: fs.readFileSync(path.join(__dirname, "fonts", "Regular.ttf")), b: fs.readFileSync(path.join(__dirname, "fonts", "Bold.ttf")) }; } catch (e) { return null; } })();
+const money = n => "₹" + Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const dmy = v => { const t = v instanceof Date ? v : new Date(v); return isNaN(t) ? "" : t.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }); };
+function startPdf(res, name, download) {
+  if (!FONTS) throw new Bad("The PDF fonts are missing from the app files.");
+  const PDFDocument = require("pdfkit"), doc = new PDFDocument({ size: "A4", margin: 40, font: FONTS.r, info: { Title: name } });
+  doc.registerFont("R", FONTS.r); doc.registerFont("B", FONTS.b);
+  res.setHeader("Content-Type", "application/pdf"); res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${name.replace(/[^A-Za-z0-9._-]/g, "-")}"`); res.setHeader("Cache-Control", "private, no-store");
+  doc.pipe(res); return doc;
+}
+function pdfInvoice(doc, d) {
+  const L = 40, R = 555, canc = d.status === "Cancelled";
+  doc.font("B").fontSize(20).fillColor("#1b2133").text(d.store, L, 40, { width: 330 });
+  doc.font("R").fontSize(10).fillColor("#555").text([d.business.address, d.business.phone, d.business.gstin ? "GSTIN " + d.business.gstin : ""].filter(Boolean).join("\n"), L, doc.y + 2, { width: 330 });
+  doc.font("B").fontSize(16).fillColor("#6a3de8").text("INVOICE", 380, 40, { width: R - 380, align: "right" });
+  doc.font("R").fontSize(10).fillColor("#333").text("No. " + d.number + (d.date ? "\nDate " + dmy(d.date) : ""), 380, 62, { width: R - 380, align: "right" });
+  let y = Math.max(doc.y, 100) + 10; doc.moveTo(L, y).lineTo(R, y).lineWidth(1.5).strokeColor("#e6e9f0").stroke(); y += 12;
+  if (canc) { doc.roundedRect(L, y, R - L, 34, 8).lineWidth(1.5).strokeColor("#b3261e").stroke(); doc.font("B").fontSize(16).fillColor("#b3261e").text("CANCELLED" + (d.cancelledAt ? "  ·  " + dmy(d.cancelledAt) : ""), L, y + 9, { width: R - L, align: "center" }); y += 48; }
+  doc.font("R").fontSize(9).fillColor("#777").text("BILLED TO", L, y); doc.font("B").fontSize(12).fillColor("#1b2133").text(d.name || "Customer", L, y + 12);
+  doc.font("R").fontSize(10).fillColor("#444").text([d.phone, d.address].filter(Boolean).join("\n"), L, doc.y + 1, { width: 330 }); y = doc.y + 14;
+  const head = yy => { doc.rect(L, yy, R - L, 22).fill("#f3f4f7"); doc.font("B").fontSize(9.5).fillColor("#444").text("ITEM", L + 8, yy + 7).text("QTY", 330, yy + 7, { width: 40, align: "right" }).text("PRICE", 380, yy + 7, { width: 70, align: "right" }).text("AMOUNT", 460, yy + 7, { width: R - 468, align: "right" }); return yy + 28; };
+  y = head(y);
+  for (const l of d.lines) {
+    const h = Math.max(20, doc.font("R").fontSize(10.5).heightOfString(l.name, { width: 280 }) + 8);
+    if (y + h > 760) { doc.addPage(); y = head(40); }
+    doc.font("R").fontSize(10.5).fillColor("#1b2133").text(l.name, L + 8, y, { width: 280 }); doc.text(String(l.qty), 330, y, { width: 40, align: "right" }).text(money(l.price), 380, y, { width: 70, align: "right" }).text(money(l.amount), 460, y, { width: R - 468, align: "right" });
+    y += h; doc.moveTo(L, y - 3).lineTo(R, y - 3).lineWidth(.5).strokeColor("#e6e9f0").stroke();
+  }
+  const rows = []; if (d.discount > 0 || d.gst > 0 || d.packing > 0 || d.delivery > 0) rows.push(["Subtotal", money(d.subtotal)]);
+  if (d.discount > 0) rows.push(["Discount", "−" + money(d.discount)]); if (d.gst > 0) rows.push(["GST " + d.gstRate + "%", money(d.gst)]);
+  if (d.packing > 0) rows.push(["Packaging charges", money(d.packing)]); if (d.delivery > 0) rows.push(["Delivery charges", money(d.delivery)]);
+  if (y + 40 + rows.length * 18 + 80 > 780) { doc.addPage(); y = 40; } y += 8;
+  for (const [k, v] of rows) { doc.font("R").fontSize(10.5).fillColor("#444").text(k, 330, y, { width: 120 }).text(v, 460, y, { width: R - 468, align: "right" }); y += 18; }
+  doc.moveTo(330, y).lineTo(R, y).lineWidth(1.5).strokeColor("#e6e9f0").stroke(); y += 6;
+  doc.font("B").fontSize(13).fillColor("#1b2133").text("Total", 330, y, { width: 120 }).text(money(d.total), 460, y, { width: R - 468, align: "right" }); y += 22;
+  doc.font("R").fontSize(10.5).fillColor("#444").text("Paid", 330, y, { width: 120 }).text(money(d.paid), 460, y, { width: R - 468, align: "right" }); y += 18;
+  if (!canc && d.due > 0) { doc.font("B").fillColor("#b3261e").text("Balance due", 330, y, { width: 120 }).text(money(d.due), 460, y, { width: R - 468, align: "right" }); y += 22; }
+  if (!canc) doc.font("B").fontSize(10).fillColor(d.due <= 0 ? "#12805c" : "#b3261e").text(d.due <= 0 ? "PAID" + (d.methods.length ? " · " + [...new Set(d.methods)].join(", ") : "") : "PAYMENT PENDING", L, y + 4);
+  if (d.notes) doc.font("R").fontSize(9.5).fillColor("#555").text("Note: " + d.notes, L, y + 28, { width: 280 });
+}
+app.get("/api/invoice/:slug/:number/pdf", h(async (req, res) => {
+  const d = await invoiceData(req); if (!d) return res.status(404).json({ error: "Invoice not found" });
+  const doc = startPdf(res, "Invoice-" + d.number + ".pdf", req.query.dl === "1"); pdfInvoice(doc, d); doc.end();
+}));
+// who you have billed / bought from (for the export box)
+app.get(m + "/invoice-parties", auth, ownerOnly, h(async (req, res) => {
+  const purchase = req.query.kind === "purchase", col = await sub(req, purchase ? "purchases" : "orders").get(), names = new Map();
+  col.docs.forEach(d => { const x = d.data(), n = String(purchase ? x.supplier : x.name || "").trim(); if (n && !(x.status === "Cancelled")) names.set(n.toLowerCase(), n); });
+  if (purchase) (await sub(req, "suppliers").get()).docs.forEach(d => { const n = String(d.data().name || "").trim(); if (n) names.set(n.toLowerCase(), n); });
+  res.json([...names.values()].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" })));
+}));
+app.post(m + "/invoices/export-link", auth, ownerOnly, h(async (req, res) => {
+  const b = req.body || {}, from = String(b.from || ""), to = String(b.to || ""), kind = b.kind === "purchase" ? "purchase" : "sales", party = clean(b.party, 80);
+  if (!DATE.test(from) || !DATE.test(to)) throw new Bad("Choose both dates.");
+  if (from > to) throw new Bad("The From date must be before the To date.");
+  res.json({ url: `/api/export/${req.params.slug}/invoices.pdf?t=${sign({ slug: req.params.slug, from, to, kind, party, exp: Date.now() + 10 * 60e3 })}` });
+}));
+app.get("/api/export/:slug/invoices.pdf", h(async (req, res) => {
+  const p = verify(req.query.t); if (!p || p.slug !== req.params.slug) return res.status(401).json({ error: "This download link has expired. Please export again." });
+  const purchase = p.kind === "purchase", col = await sub(req, purchase ? "purchases" : "orders").get(), me = p.party.toLowerCase();
+  let rows = col.docs.map(d => d.data()).map(x => purchase
+    ? { date: x.date || "", no: x.number, who: x.supplier || "", total: x.total || 0, paid: x.paid || 0, status: "" }
+    : { date: dayOfOrder(x), no: x.number, who: x.name || "Customer", total: x.total || 0, paid: x.paid || 0, status: x.status === "Cancelled" ? "Cancelled" : "" });
+  rows = rows.filter(r => r.date >= p.from && r.date <= p.to && (!me || String(r.who).toLowerCase() === me)).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : String(a.no) < String(b.no) ? -1 : 1);
+  const live = rows.filter(r => r.status !== "Cancelled"), sum = f => live.reduce((n, r) => n + f(r), 0), s = await store(req.params.slug).get();
+  const doc = startPdf(res, `${purchase ? "Purchase" : "Sales"}-invoices-${p.from}-to-${p.to}.pdf`, true), L = 40, R = 555, W = purchase ? "Supplier" : "Customer";
+  doc.font("B").fontSize(18).fillColor("#1b2133").text(s.data().name, L, 40); doc.font("B").fontSize(13).fillColor("#6a3de8").text((purchase ? "Purchase" : "Sales") + " invoices", L, doc.y + 2);
+  doc.font("R").fontSize(10).fillColor("#444").text(`${dmy(p.from + "T12:00:00+05:30")} to ${dmy(p.to + "T12:00:00+05:30")}  ·  ${p.party ? W + ": " + p.party : "All " + W.toLowerCase() + "s"}`, L, doc.y + 2);
+  let y = doc.y + 14;
+  const cols = [[L + 6, 62, "left"], [L + 74, 78, "left"], [L + 156, 150, "left"], [L + 310, 62, "right"], [L + 376, 62, "right"], [L + 442, R - L - 448, "right"]];
+  const head = yy => { doc.rect(L, yy, R - L, 22).fill("#f3f4f7"); ["DATE", "NO.", W.toUpperCase(), "TOTAL", "PAID", "DUE"].forEach((t, i) => doc.font("B").fontSize(9).fillColor("#444").text(t, cols[i][0], yy + 7, { width: cols[i][1], align: cols[i][2] })); return yy + 28; };
+  y = head(y);
+  if (!rows.length) doc.font("R").fontSize(11).fillColor("#777").text("No invoices in this period.", L + 6, y);
+  for (const r of rows) {
+    if (y > 760) { doc.addPage(); y = head(40); }
+    const dead = r.status === "Cancelled", cells = [dmy(r.date + "T12:00:00+05:30"), String(r.no), dead ? r.who + " (cancelled)" : r.who, dead ? "—" : money(r.total), dead ? "—" : money(r.paid), dead ? "—" : money(Math.max(0, r.total - r.paid))];
+    doc.font("R").fontSize(9.5).fillColor(dead ? "#999" : "#1b2133"); cells.forEach((t, i) => doc.text(t, cols[i][0], y, { width: cols[i][1], align: cols[i][2], lineBreak: false, ellipsis: true }));
+    y += 19; doc.moveTo(L, y - 4).lineTo(R, y - 4).lineWidth(.4).strokeColor("#e6e9f0").stroke();
+  }
+  if (rows.length) { if (y > 730) { doc.addPage(); y = 40; } y += 6; doc.moveTo(L, y).lineTo(R, y).lineWidth(1.5).strokeColor("#1b2133").stroke(); y += 8;
+    const tt = sum(r => r.total), tp = sum(r => r.paid);
+    doc.font("B").fontSize(10.5).fillColor("#1b2133").text(`Total (${live.length} invoice${live.length == 1 ? "" : "s"})`, cols[0][0], y, { width: 250, lineBreak: false }); [money(tt), money(tp), money(Math.max(0, tt - tp))].forEach((t, i) => doc.text(t, cols[i + 3][0], y, { width: cols[i + 3][1], align: "right", lineBreak: false })); }
+  doc.end();
 }));
 
 // ---------- pages ----------
