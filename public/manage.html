@@ -631,6 +631,7 @@ function openProdSheet(id) {
   ${par || kids.length ? `<div class="drow"><span class="mute">Merged</span><b>${par ? "Under " + esc(par.name) : kids.length + " merged under it"}</b></div>` : ""}
   <div class="drow"><span class="mute">Online store</span>${owner() ? `<span class="row nw" style="gap:8px"><b>${p.active ? "Live" : "Off"}</b><label class="sw"><input type="checkbox" ${p.active ? "checked" : ""} ${p.active || !needsAll(p).length ? "" : "disabled"} onchange="liveSheet('${p.id}',this.checked)" aria-label="Live on the online store"><i></i></label></span>` : `<b>${p.active ? "Live" : "Off"}</b>`}</div></div>
   <div class="acts" style="margin-top:6px">${can("stock") ? `<button class="btn g grow" onclick="openAdjust('${p.id}','by')">Update stock</button>` : ""}${can("add") ? `<button class="btn g grow" onclick="scanEan('${p.id}')">${ic("camera")} ${p.barcode ? "Change EAN" : "Add EAN"}</button>` : ""}${can("add") || can("stock") || can("cost") || can("tags") ? `<button class="btn grow" onclick="openProd('${p.id}')">${ic("edit")} Edit product</button>` : ""}</div>
+  ${can("add") ? `<button class="btn g" style="width:100%;margin-top:10px" onclick="dupProd('${p.id}')">${ic("layers")} Duplicate</button>` : ""}
   ${owner() ? `<div style="text-align:center;margin-top:10px"><button class="lnk" style="color:var(--er)" onclick="closeM();delProd('${p.id}')">Delete product</button></div>` : ""}`);
 }
 function openBatch(id, bid) {
@@ -788,13 +789,20 @@ function scanIntoForm() {
     openProd(id, { ...keep, barcode: code, name: keep.name || (r.found || {}).name || "", description: keep.description || (r.found || {}).description || "" });
   });
 }
+// Duplicate: opens a new product with everything copied except photos, barcode and code (those must be different), and not live until you add photos
+function dupProd(id) {
+  const p = P.find(x => x.id == id); if (!p) return; const pre = { __dup: 1 };
+  ["name", "description", "cost", "price", "mrp", "qty", "lowAt", "expiry", "supplier", "brand", "o1", "o2", "mergeUnder", "featured", "kind"].forEach(k => { if (p[k] !== undefined && p[k] !== null) pre[k] = p[k]; });
+  pre.tags = [...(p.tags || [])]; pre.active = false; pre.photos = [];
+  openProd("", pre);
+}
 function openProd(id, pre) {
   if (!(pre && pre.__ab)) ADDBACK = "";
   const old = P.find(x => x.id == id), p = { ...(old || { active: owner(), lowAt: 5, tags: [], photos: [] }), ...(pre || {}) }, kids = !!id && P.some(x => x.mergeUnder == id), dis = perm => can(perm) ? "" : "disabled", np = (p.photos || []).length, multi = batchesOf(p).length > 1, w = splitW(p.o2);
   CBD = { brand: BR.map(b => ({ v: b, t: b })), supplier: S.map(s => ({ v: s.name, t: s.name })), mergeUnder: P.filter(x => !x.mergeUnder && x.id != id).map(x => ({ v: x.id, t: x.name })) };
   const pre$ = n => `<span class="pfx"><b>₹</b>${n}</span>`;
   modal(`<form onsubmit="saveProd(event,'${id || ""}')" class="pform">
-  <div class="pf-h"><button type="button" class="ib" onclick="${id ? `openProdSheet('${id}')` : "closeM()"}" aria-label="Back">←</button><h2>${id ? "Edit product" : "Add product"}</h2></div>
+  <div class="pf-h"><button type="button" class="ib" onclick="${id ? `openProdSheet('${id}')` : "closeM()"}" aria-label="Back">←</button><h2>${id ? "Edit product" : p.__dup ? "Duplicate product" : "Add product"}</h2></div>
   <div class="sec">Photos <span class="mute">· up to 8, first one is the cover</span></div>
   <div class="pstrip">${(p.photos || []).map((i, n) => `<div class="pt"><span class="ph2"><img class="th big" src="/api/photo/${slug}/${i}" alt="">${can("add") ? `<button type="button" aria-label="Remove photo" onclick="delPhoto('${id}','${i}')">×</button>` : ""}</span>${n == 0 ? '<span class="cov">Cover</span>' : can("add") ? `<button type="button" class="lnk sm" onclick="setCover('${id}','${i}')">Set cover</button>` : ""}</div>`).join("")}<span id="pfnew" class="row nw" style="gap:10px"></span>${can("add") && np < 8 ? `<label class="addph">${ic("plus", 22)}<span>Add</span><input name="pf" type="file" accept="image/*" multiple hidden onchange="pickPhotos(this)"></label>` : ""}</div>
   <label>Name<input name="name" required ${dis("add")} value="${esc(p.name)}" placeholder="e.g. Dairy Milk Silk 60g"></label>
