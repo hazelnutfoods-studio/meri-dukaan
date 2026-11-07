@@ -440,7 +440,7 @@ app.put(m + "/business", auth, ownerOnly, h(async (req, res) => {
 // ----- New invoice: the owner bills a counter sale or a phone order -----
 const draftOf = b => ({
   name: clean(b.name, 80), phone: clean(b.phone, 20), mode: b.mode === "online" ? "online" : "store", address: clean(b.address, 300),
-  lines: (Array.isArray(b.lines) ? b.lines : []).slice(0, 50).map(l => ({ id: String(l.id || "").slice(0, 40), qty: Math.floor(Number(l.qty) || 0) })),
+  lines: (Array.isArray(b.lines) ? b.lines : []).slice(0, 50).map(l => ({ id: String(l.id || "").slice(0, 40), qty: Math.floor(Number(l.qty) || 0), ...(l.price != null && l.price !== "" && Number(l.price) >= 0 && Number(l.price) < 1e7 ? { price: Math.round(Number(l.price) * 100) / 100 } : {}) })), // price: set on this invoice only; blank = the product's own price
   discount: Math.max(0, Number(b.discount) || 0), gst: RATES.includes(Number(b.gst)) ? Number(b.gst) : 0, notes: clean(b.notes, 200),
   packing: Math.min(100000, Math.max(0, Math.round(Number(b.packing) || 0))), delivery: Math.min(100000, Math.max(0, Math.round(Number(b.delivery) || 0))),
   pay: { status: ["paid", "partial", "unpaid"].includes((b.pay || {}).status) ? b.pay.status : "unpaid", method: PAY_METHODS.includes((b.pay || {}).method) ? b.pay.method : "UPI", amount: Math.max(0, Number((b.pay || {}).amount) || 0) },
@@ -449,8 +449,8 @@ app.post(m + "/invoices", auth, ownerOnly, h(async (req, res) => {
   const b = draftOf(req.body), ref = store(req.params.slug);
   if (b.phone && !/^[0-9+\-\s]{8,15}$/.test(b.phone)) throw new Bad("Enter a valid phone number.");
   if (b.mode === "online" && (!b.phone || b.address.length < 8)) throw new Bad("For an online order, add the phone number and full delivery address.");
-  const want = new Map();
-  for (const l of b.lines) { if (!/^[A-Za-z0-9]{1,40}$/.test(l.id) || !(l.qty >= 1 && l.qty <= 999)) throw new Bad("Check the products and quantities."); want.set(l.id, (want.get(l.id) || 0) + l.qty); }
+  const want = new Map(), prices = new Map();
+  for (const l of b.lines) { if (!/^[A-Za-z0-9]{1,40}$/.test(l.id) || !(l.qty >= 1 && l.qty <= 999)) throw new Bad("Check the products and quantities."); want.set(l.id, (want.get(l.id) || 0) + l.qty); if (l.price != null) prices.set(l.id, l.price); }
   if (!want.size) throw new Bad("Add at least one product.");
   const order = await db.runTransaction(async t => {
     const ids = [...want.keys()], snaps = await Promise.all(ids.map(id => t.get(ref.collection("products").doc(id)))), st = await t.get(ref), S = await loadStats(t, req);
@@ -459,8 +459,9 @@ app.post(m + "/invoices", auth, ownerOnly, h(async (req, res) => {
       if (!p.exists) throw new Bad("A product on this invoice no longer exists.");
       const d = p.data(), q = want.get(ids[i]);
       if (d.qty != null && sellable(d) < q) throw new Bad(sellable(d) > 0 ? `Only ${sellable(d)} left of ${d.name}.` : `${d.name} is out of stock.`);
-      lines.push({ id: p.id, name: lname(d), price: d.price, cost: d.cost || 0, qty: q, photo: (d.photos || [])[0] || "" });
-      subtotal += d.price * q; cost += (d.cost || 0) * q;
+      const pr = prices.has(p.id) ? prices.get(p.id) : d.price;
+      lines.push({ id: p.id, name: lname(d), price: pr, cost: d.cost || 0, qty: q, photo: (d.photos || [])[0] || "" });
+      subtotal += pr * q; cost += (d.cost || 0) * q;
     });
     if (b.discount > subtotal) throw new Bad("The discount can’t be more than the subtotal.");
     const taxable = subtotal - b.discount, gst = Math.round(taxable * b.gst / 100), total = taxable + gst + b.packing + b.delivery;
@@ -482,8 +483,8 @@ app.put(m + "/invoices/:number", auth, ownerOnly, h(async (req, res) => {
   const b = draftOf(req.body), ref = sub(req, "orders").doc(req.params.number);
   if (b.phone && !/^[0-9+\-\s]{8,15}$/.test(b.phone)) throw new Bad("Enter a valid phone number.");
   if (b.mode === "online" && (!b.phone || b.address.length < 8)) throw new Bad("For an online order, add the phone number and full delivery address.");
-  const want = new Map();
-  for (const l of b.lines) { if (!/^[A-Za-z0-9]{1,40}$/.test(l.id) || !(l.qty >= 1 && l.qty <= 999)) throw new Bad("Check the products and quantities."); want.set(l.id, (want.get(l.id) || 0) + l.qty); }
+  const want = new Map(), prices = new Map();
+  for (const l of b.lines) { if (!/^[A-Za-z0-9]{1,40}$/.test(l.id) || !(l.qty >= 1 && l.qty <= 999)) throw new Bad("Check the products and quantities."); want.set(l.id, (want.get(l.id) || 0) + l.qty); if (l.price != null) prices.set(l.id, l.price); }
   if (!want.size) throw new Bad("Keep at least one product on the invoice.");
   const out = await db.runTransaction(async t => {
     const o = await t.get(ref), S = await loadStats(t, req); if (!o.exists) throw new Bad("Invoice not found.");
@@ -495,7 +496,7 @@ app.put(m + "/invoices/:number", auth, ownerOnly, h(async (req, res) => {
     for (const id of want.keys()) {
       const q = want.get(id), pl = prior.get(id), p = snaps.get(id);
       if (!pl && (!p || !p.exists)) throw new Bad("A product on this invoice no longer exists.");
-      const line = pl ? { ...pl, qty: q } : { id, name: lname(p.data()), price: p.data().price, cost: p.data().cost || 0, qty: q, photo: (p.data().photos || [])[0] || "" };
+      const line = pl ? { ...pl, qty: q, ...(prices.has(id) ? { price: prices.get(id) } : {}) } : { id, name: lname(p.data()), price: prices.has(id) ? prices.get(id) : p.data().price, cost: p.data().cost || 0, qty: q, photo: (p.data().photos || [])[0] || "" };
       if (!(line.price >= 0)) throw new Bad("A product has no selling price.");
       lines.push(line); subtotal += line.price * q; cost += (line.cost || 0) * q;
     }
@@ -553,7 +554,7 @@ async function fields(req, b) {
     if (b.sku !== undefined) u.sku = clean(b.sku, 24).toUpperCase();
     if (b.barcode !== undefined) { const c = String(b.barcode || "").replace(/\s+/g, ""); if (c && !/^[0-9]{6,14}$/.test(c)) throw new Bad("A barcode (EAN) is 6 to 14 digits, numbers only."); u.barcode = c; }
     if (b.mergeUnder !== undefined) u.mergeUnder = clean(b.mergeUnder, 40); // checked in checkMerge()
-    if (b.kind !== undefined) u.kind = b.kind === "food" ? "food" : "general"; // colour+size, or flavour+weight
+    if (b.kind !== undefined) u.kind = "food"; // every product uses Flavour + Weight
     if (b.o1 !== undefined) u.o1 = clean(b.o1, 40); // colour or flavour
     if (b.o2 !== undefined) u.o2 = clean(b.o2, 40); // size or weight
   }
@@ -626,7 +627,7 @@ app.post(m + "/products", auth, need("add"), h(async (req, res) => {
     const n = await db.runTransaction(async t => { const st = await t.get(store(req.params.slug)), k = (st.data().skuSeq || 0) + 1; t.update(st.ref, { skuSeq: k }); return k; });
     u.sku = "SKU-" + String(n).padStart(4, "0");
   }
-  const doc = { description: "", supplier: "", cost: null, qty: 0, lowAt: 5, expiry: "", tags: [], photos: [], price: 0, active: false, ...u, createdAt: stamp() };
+  const doc = { description: "", supplier: "", cost: null, qty: 0, lowAt: 5, expiry: "", tags: [], photos: [], price: 0, active: false, kind: "food", ...u, createdAt: stamp() };
   Object.assign(doc, withBatches(null, { qty: doc.qty, expiry: doc.expiry }));
   checkLive(doc);
   const r = await sub(req, "products").add(doc);
@@ -810,7 +811,7 @@ app.post(m + "/products-import", auth, ownerOnly, h(async (req, res) => {
       ops.push(b => b.update(docRef, u));
       if (u.qty !== undefined && u.qty !== (ex.data().qty == null ? 0 : ex.data().qty)) { const was = ex.data().qty == null ? 0 : ex.data().qty; ops.push(b => b.set(sub(req, "stockLog").doc(), stockEntry(req, { id: docRef.id, name: d.name, sku: ex.data().sku }, u.qty - was, u.qty, "Imported"))); }
     } else {
-      const doc = { description: "", supplier: "", cost: null, qty: null, lowAt: 5, expiry: "", tags: d.tagNames, photos: [], price: 0, active: false, mergeUnder: "", kind: "general", ...clone, createdAt: stamp(), imported: true };
+      const doc = { description: "", supplier: "", cost: null, qty: null, lowAt: 5, expiry: "", tags: d.tagNames, photos: [], price: 0, active: false, mergeUnder: "", kind: "food", ...clone, createdAt: stamp(), imported: true };
       doc.active = !!(d.wantLive && !w.res.missing.length);
       Object.assign(doc, withBatches(null, { qty: doc.qty, expiry: doc.expiry }));
       ops.push(b => b.set(docRef, doc));
@@ -1003,6 +1004,30 @@ app.get(m + "/summary", auth, need("orders"), h(async (req, res) => {
 }));
 app.post(m + "/summary/rebuild", auth, ownerOnly, h(async (req, res) => { await rebuildStats(req); res.json({ ok: true }); }));
 // Adjust quantities on a new order before confirmation; reconcile stock and totals atomically.
+// while packing: choose which expiry batch(es) an item is taken from (the order starts with the nearest expiry)
+app.put(m + "/orders/:number/alloc", auth, need("orders"), h(async (req, res) => {
+  const ref = sub(req, "orders").doc(req.params.number), id = String(req.body.id || "").slice(0, 40), merged = new Map();
+  (Array.isArray(req.body.alloc) ? req.body.alloc : []).forEach(a => { const q = Math.floor(Number(a.qty) || 0), k = clean(a.b, 20); if (q > 0 && k) merged.set(k, (merged.get(k) || 0) + q); });
+  const want = [...merged].map(([b, qty]) => ({ b, qty }));
+  await db.runTransaction(async t => {
+    const o = await t.get(ref); if (!o.exists) throw new Bad("Order not found.");
+    const d = o.data(); if (d.status === "Cancelled" || d.status === "Delivered") throw new Bad("This order can’t be changed any more.");
+    const lines = (d.lines || []).map(l => ({ ...l })), line = lines.find(l => l.id === id); if (!line) throw new Bad("That item is not on this order.");
+    const pr = sub(req, "products").doc(id), p = await t.get(pr); if (!p.exists) throw new Bad("That product no longer exists.");
+    if (p.data().qty == null) throw new Bad("Stock is not tracked for this product.");
+    if (want.reduce((n, a) => n + a.qty, 0) !== line.qty) throw new Bad(`Choose ${line.qty} piece${line.qty == 1 ? "" : "s"} in total.`);
+    const bs = batchesOf(p.data()).map(b => ({ ...b })), today = istToday(), old = line.alloc || [];
+    for (const a of old) { const b = bs.find(x => x.id === a.b); if (b) b.qty += a.qty; else bs.push({ id: a.b, qty: a.qty, expiry: a.expiry || "" }); } // take the old choice back first
+    const alloc = [];
+    for (const w of want) {
+      const b = bs.find(x => x.id === w.b); if (!b || b.qty < w.qty) throw new Bad("That batch does not have enough pieces.");
+      if (!liveB(b, today) && !old.some(a => a.b === w.b)) throw new Bad("That batch has expired.");
+      b.qty -= w.qty; alloc.push({ b: b.id, expiry: b.expiry || "", qty: w.qty });
+    }
+    line.alloc = alloc; t.update(pr, packBatches(bs, p.data().expiry)); t.update(ref, { lines });
+  });
+  res.json({ ok: true });
+}));
 app.put(m + "/orders/:number/items", auth, ownerOnly, h(async (req, res) => {
   const input = req.body && req.body.lines;
   if (!Array.isArray(input) || !input.length || input.length > 50) throw new Bad("Keep at least one item on the order.");
