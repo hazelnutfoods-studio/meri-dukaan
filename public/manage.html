@@ -195,7 +195,7 @@ const SK = "login:" + slug; // remembered on this device, one entry per store
 const saved = (() => { try { return JSON.parse(localStorage.getItem(SK) || "{}"); } catch (e) { return {}; } })();
 let SN = "Your store", key = saved.key || sessionStorage.getItem("k") || "", tok = saved.tok || "", ME = { role: "owner", perms: {}, profile: {}, business: {} };
 let SL = null, ivTab = "stock", ivf = "all", ivq = "", invf = "all", invq = "", PU = [], invKind = "sales", invsKind = "sales", puq = "", PIN = null, lastKey = "";
-let P = [], O = [], S = [], T = [], U = [], DR = [], tab = "dash", lastTab = "dash", range = "30", flt = "all", orderTab = "inprocess", orderDrafts = {};
+let BR = [], P = [], O = [], S = [], T = [], U = [], DR = [], tab = "dash", lastTab = "dash", range = "30", flt = "all", orderTab = "inprocess", orderDrafts = {};
 let pq = "", pcat = "All", pfil = "all", oq = "", showOq = false, INV = null;
 const owner = () => ME.role == "owner";
 const can = p => owner() || !!(ME.perms && ME.perms[p]);
@@ -213,8 +213,8 @@ const byNew = (a, b) => new Date(b.createdAt) - new Date(a.createdAt);
 const mergeO = list => { const m = new Map(O.map(o => [o.number, o])); list.forEach(o => m.set(o.number, o)); O = [...m.values()].sort(byNew); };
 async function load() {
   SL = null; OFULL = {};
-  const [p, s, t, o, u, d, pu, sm] = await Promise.all([api(base + "/products"), api(base + "/suppliers"), api(base + "/tags"), can("orders") ? api(base + "/orders") : { orders: [] }, owner() ? api(base + "/users") : [], owner() ? api(base + "/drafts") : [], owner() ? api(base + "/purchases") : { purchases: [] }, can("orders") ? api(base + "/summary").catch(() => null) : null]);
-  P = p; S = s; T = t; U = u; DR = d; SUM = sm;
+  const [p, s, t, o, u, d, pu, sm, bn] = await Promise.all([api(base + "/products"), api(base + "/suppliers"), api(base + "/tags"), can("orders") ? api(base + "/orders") : { orders: [] }, owner() ? api(base + "/users") : [], owner() ? api(base + "/drafts") : [], owner() ? api(base + "/purchases") : { purchases: [] }, can("orders") ? api(base + "/summary").catch(() => null) : null, api(base + "/brands").catch(() => [])]);
+  BR = bn; P = p; S = s; T = t; U = u; DR = d; SUM = sm;
   O = o.orders; OMORE = !!o.more; OCUR = o.cursor || null; PU = pu.purchases; PUMORE = !!pu.more; PUCUR = pu.cursor || null;
 }
 async function loadMoreOrders(btn) {
@@ -607,7 +607,7 @@ function openProdSheet(id) {
   const exp = p.expiry ? fDate(p.expiry) : "—";
   modal(`${ph ? `<img src="${esc(ph)}" alt="" style="width:100%;aspect-ratio:3/2;object-fit:contain;background:#fff;border-radius:16px;border:1px solid var(--line)">` : ""}
   <div class="row nw" style="justify-content:space-between;margin-top:12px;align-items:flex-start"><div><h2 style="margin:0;font-size:1.25rem">${esc(p.name)}</h2><div class="mute">${esc([p.sku, cat].filter(Boolean).join(" · "))}</div></div><span class="bd ${st.cls}">${st.txt}</span></div>
-  <div class="fg keep" style="gap:10px;margin:14px 0">${fact("Selling price", p.price > 0 ? inr(p.price) : "Not set")}${can("cost") ? fact("Cost", inr(p.cost || 0)) : ""}${fact("In stock", p.qty == null ? "Not tracked" : p.qty)}${fact("Expiry", exp)}${fact("Supplier", p.supplier || "—")}${fact("EAN / barcode", p.barcode || "Not added")}
+  <div class="fg keep" style="gap:10px;margin:14px 0">${fact("Selling price", p.price > 0 ? inr(p.price) : "Not set")}${can("cost") ? fact("Cost", inr(p.cost || 0)) : ""}${fact("In stock", p.qty == null ? "Not tracked" : p.qty)}${fact("Expiry", exp)}${fact("Supplier", p.supplier || "—")}${fact("EAN / barcode", p.barcode || "Not added")}${p.brand ? fact("Brand", p.brand) : ""}
   <div style="background:var(--bg);border-radius:14px;padding:11px 13px"><div class="mute">Online store</div>${owner() ? `<div class="row nw" style="gap:8px;margin-top:3px"><label class="sw"><input type="checkbox" ${p.active ? "checked" : ""} ${p.active || !needsAll(p).length ? "" : "disabled"} onchange="liveSheet('${p.id}',this.checked)" aria-label="Live on the online store"><i></i></label><b>${p.active ? "Live" : "Off"}</b></div>` : `<b>${p.active ? "Live" : "Off"}</b>`}</div></div>
   ${p.qty != null && batchesOf(p).length ? `<div class="card" style="margin:0 0 10px;padding:12px 13px"><div class="cap" style="margin-bottom:6px">Stock by expiry · soonest first</div>${batchesOf(p).map((b, i) => `<div class="row nw" style="justify-content:space-between;align-items:center;gap:8px;padding:8px 0;${i ? "border-top:1px solid var(--line)" : ""}"><div><b>${b.qty} pcs</b> <span class="mute">· ${esc(fDate(b.expiry))}</span></div><div class="row nw" style="gap:8px;align-items:center">${bTag(b)}${can("stock") ? `<button class="lnk" onclick="openBatch('${p.id}','${b.id}')">Edit</button>` : ""}</div></div>`).join("")}</div>` : ""}
   ${!p.active && needs(p).length ? `<div class="card" style="background:var(--wnb);border-color:transparent;color:var(--wn);margin:0 0 10px;padding:11px 13px"><b>Needs details</b><div>Before it can go live, add: ${esc(needs(p).join(", "))}.</div></div>` : ""}
@@ -735,6 +735,10 @@ function openProd(id, pre) {
   <label>Alert when stock is this low<input name="lowAt" type="number" min="0" ${dis("stock")} value="${esc(p.lowAt)}"></label>
   <label>Expiry (month and year, optional)${mfield({ name: "expiry", value: p.expiry, disabled: batchesOf(p).length > 1 || !can("stock") })}</label>
   <label>Supplier<select name="supplier" ${dis("add")} style="width:100%;margin:4px 0 10px"><option value="">None</option>${S.map(s => `<option ${s.name == p.supplier ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label></div>
+  <div style="margin:4px 0 10px"><label style="display:block">Brand (optional)</label>
+    <div class="srch" style="margin:6px 0">${ic("search")}<input placeholder="Search brands" oninput="brandFind(this)" autocomplete="off" ${dis("add")}></div>
+    <select name="brand" size="4" ${dis("add")} style="width:100%;margin:0 0 8px">${brandOpts("", p.brand)}</select>
+    ${can("add") ? `<div class="row nw" style="gap:8px"><input id="nbr" placeholder="Not in the list? Type a new brand" maxlength="60" style="margin:0;flex:1" autocomplete="off"><button type="button" class="btn g" onclick="addBrand()">Add brand</button></div>` : ""}</div>
   <label style="margin-top:4px"><b style="color:var(--ink)">Variants (optional)</b> · colour, size, flavour or weight</label>
   <div><label style="display:block;margin-top:4px">Merge under</label>${kids ? "" : `<div class="srch" style="margin:6px 0"><span style="display:contents">${ic("search")}</span><input placeholder="Search products to merge under" oninput="mergeFind(this,'${id}')" autocomplete="off" ${dis("add")}></div>`}<select name="mergeUnder" ${dis("add")} ${kids ? "disabled" : 'size="5"'} style="width:100%;margin:0 0 10px">${mergeOpts("", p.mergeUnder, id)}</select></div>
   ${kids ? '<p class="mute" style="margin:0 0 8px">Other products are merged under this one, so it is the main product.</p>' : ""}
@@ -744,6 +748,13 @@ function openProd(id, pre) {
   ${owner() ? `<label class="ck"><input type="checkbox" name="featured" ${p.featured ? "checked" : ""}> Show under “Featured” on the home page</label>` : ""}
   <label class="ck"><input type="checkbox" name="active" ${p.active ? "checked" : ""} ${owner() ? "" : "disabled"}> Live on the online store${owner() ? "" : " (owner only)"}</label>
   <div class="acts"><button type="button" class="btn g" onclick="closeM()">Cancel</button><button class="btn" id="sv">Save product</button></div></form>`);
+}
+// Brand: search, pick from the list, or add a new one
+const brandOpts = (q, cur) => { q = (q || "").trim().toLowerCase(); const l = [...new Set([...BR, ...(cur ? [cur] : [])])].filter(b => b == cur || !q || b.toLowerCase().includes(q)).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" })); return `<option value="">No brand</option>` + l.map(b => `<option value="${esc(b)}" ${cur == b ? "selected" : ""}>${esc(b)}</option>`).join(""); };
+function brandFind(inp) { const sel = inp.closest(".srch").parentNode.querySelector("select"); sel.innerHTML = brandOpts(inp.value, sel.value); }
+async function addBrand() {
+  const i = $("nbr"), name = i.value.trim(); if (!name) return alert("Type the brand name first.");
+  try { const r = await api(base + "/brands", "POST", { name }); if (!BR.includes(r.name)) BR.push(r.name); const sel = document.querySelector('#dlg select[name=brand]'); sel.innerHTML = brandOpts("", r.name); i.value = ""; const q = document.querySelector("#dlg .srch input"); if (q) q.value = ""; } catch (e) { alert(e.message); }
 }
 // Merge under: a search box first, then the products A to Z
 const mergeOpts = (q, cur, self) => { q = (q || "").trim().toLowerCase(); return '<option value="">Not merged · shows as its own listing</option>' + P.filter(x => !x.mergeUnder && x.id != self && (x.id == cur || !q || [x.name, x.sku].join(" ").toLowerCase().includes(q))).sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" })).map(x => `<option value="${x.id}" ${cur == x.id ? "selected" : ""}>${esc(x.name)}</option>`).join(""); };

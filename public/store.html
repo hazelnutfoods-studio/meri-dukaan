@@ -188,7 +188,7 @@ function card(p, badge, withHeart) {
   const single = sibs(p).length < 2, so = left(p) <= 0;
   const b = badge || (pct(p) ? pct(p) + "% OFF" : "");
   return `<div class="pc" onclick="go('product','${p.id}')"><div class="pim${alt(p)}">${p.photos[0] ? `<img src="${esc(p.photos[0])}" alt="${esc(p.name)}" loading="lazy">` : ic("bar", 44)}${b ? `<span class="bg">${esc(b)}</span>` : ""}${withHeart ? `<button class="hr ${wished(p.id) ? "on" : ""}" aria-label="Save to wishlist" onclick="heart(event,'${p.id}')">${wished(p.id) ? heartFill() : ic("heart", 18)}</button>` : ""}</div>
-    <div class="br">${esc(p.tags[0] || "")}</div><div class="nm">${esc(p.name)}</div><div class="sbl">${esc(sub(p))}</div>
+    <div class="br">${esc(p.brand || p.tags[0] || "")}</div><div class="nm">${esc(p.name)}</div><div class="sbl">${esc(sub(p))}</div>
     <div class="pr"><div><b>₹${p.price}</b>${p.mrp ? `<s>₹${p.mrp}</s>` : ""}</div>${single && !so ? (cart[p.id] ? `<div class="qty s mini" onclick="event.stopPropagation()"><button aria-label="Remove one ${esc(p.name)}" onclick="chg('${p.id}',-1)">${ic("minus", 16, 2.6)}</button><b>${cart[p.id]}</b><button aria-label="Add one ${esc(p.name)}" onclick="chg('${p.id}',1)">${ic("plus", 16, 2.6)}</button></div>` : `<button class="add" aria-label="Add ${esc(p.name)} to cart" onclick="event.stopPropagation();chg('${p.id}',1)">${ic("plus", 20, 2.4)}</button>`) : ""}</div>${so ? '<div class="so">Sold out</div>' : ""}</div>`;
 }
 const rowOf = (list, bf) => `<div class="row">${list.map(p => card(p, bf)).join("")}</div>`;
@@ -220,7 +220,7 @@ function cats() {
     <div class="chips"><button class="${tag ? "" : "on"}" onclick="tag='';render()">All</button>${shop.tags.map(t => `<button class="${tag === t ? "on" : ""}" data-t="${esc(t)}" onclick="tag=this.dataset.t;render()">${esc(t)}</button>`).join("")}</div>
     ${list.length ? `<div class="grid">${groups(list).map(p => card(p, "", 1)).join("")}</div>` : '<p class="empty">Nothing here yet.</p>'}`;
 }
-const hits = () => { const s = q.trim().toLowerCase(); return s ? shop.products.filter(p => [p.name, p.description, p.o1, p.o2, ...p.tags].join(" ").toLowerCase().includes(s)) : []; };
+const hits = () => { const s = q.trim().toLowerCase(); return s ? shop.products.filter(p => [p.name, p.brand, p.description, p.o1, p.o2, ...p.tags].join(" ").toLowerCase().includes(s)) : []; };
 function search() {
   return `<div class="hdr"><button class="back" aria-label="Back" onclick="back()">${ic("back")}</button><label class="sb" style="margin:0;flex:1;min-width:0"><span class="in">${ic("search")}<input id="qi" type="search" value="${esc(q)}" placeholder="Search products…" aria-label="Search" oninput="q=this.value;drawHits()"></span></label></div><div id="hits"></div>`;
 }
@@ -238,7 +238,8 @@ function product() {
     <div class="g" id="gal" onscroll="const c=Math.round(this.scrollLeft/this.clientWidth);if(c!==pimg){pimg=c;const k=document.getElementById('cnt');if(k)k.textContent=(c+1)+' / ${photos.length}';document.querySelectorAll('.thumbs button').forEach((b,i)=>b.classList.toggle('on',i===c))}">${photos.map(u => `<div><img src="${esc(u)}" alt="${esc(p.name)}"></div>`).join("") || `<div>${ic("bar", 90, 1.2)}</div>`}</div>${photos.length > 1 ? `<div class="cnt" id="cnt">${ph + 1} / ${photos.length}</div>` : ""}</div>
     <div class="sheet">${photos.length > 1 ? `<div class="thumbs">${photos.map((u, i) => `<button class="${i === ph ? "on" : ""}" aria-label="Photo ${i + 1}" onclick="pimg=${i};const g=document.getElementById('gal');g.scrollTo({left:g.clientWidth*${i},behavior:'smooth'})"><img src="${esc(u)}" alt=""></button>`).join("")}</div>` : ""}
     <div style="margin-top:${photos.length > 1 ? 18 : 4}px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">${p.tags[0] ? `<span class="pill" style="font-size:13px;padding:5px 12px">${esc(p.tags[0])}</span>` : ""}<span class="pill ${so ? "bad" : "ok"}">${so ? "Out of stock" : "In stock"}</span></div>
-    <h1 style="margin:10px 0 0;font-size:28px;line-height:1.15;font-weight:800">${esc(p.name)}</h1>
+    ${p.brand ? `<div style="margin-top:10px;font-size:13px;font-weight:800;letter-spacing:.06em;color:var(--mute)">${esc(p.brand.toUpperCase())}</div>` : ""}
+    <h1 style="margin:${p.brand ? 2 : 10}px 0 0;font-size:28px;line-height:1.15;font-weight:800">${esc(p.name)}</h1>
     <div style="margin-top:14px;display:flex;align-items:center;gap:10px"><div style="font-size:32px;font-weight:800;line-height:1">₹${p.price}</div>${p.mrp ? `<div style="font-size:17px;color:var(--mute);text-decoration:line-through;font-weight:600">₹${p.mrp}</div><div class="pill y" style="font-size:13px;letter-spacing:0;border-radius:10px;padding:5px 10px">${pct(p)}% OFF</div>` : ""}</div>${opts}
     <div class="facts"><div><small>STOCK</small><b>${stock}</b></div>${sub(p) ? `<div><small>PACK</small><b>${esc(sub(p))}</b></div>` : ""}</div>
     ${p.description ? `<h2 style="margin:22px 0 0;font-size:18px;font-weight:800">Description</h2><p style="margin:6px 0 0;font-size:15px;line-height:1.55;color:var(--mute);font-weight:500">${esc(p.description)}</p>` : ""}
