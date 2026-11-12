@@ -13,8 +13,8 @@ const stamp = () => FV.serverTimestamp();
 
 const app = express();
 app.set("trust proxy", 1);
-const small = express.json({ limit: "100kb" }), big = express.json({ limit: "1mb" }); // photos are bigger than normal requests
-app.use((req, res, next) => (req.method === "POST" && /\/(photos?|products-import)$/.test(req.path) ? big : small)(req, res, next));
+const small = express.json({ limit: "100kb" }), big = express.json({ limit: "8mb" }); // photos are bigger than normal requests
+app.use((req, res, next) => (req.method === "POST" && /\/(photos?|products-import|move-in)$/.test(req.path) ? big : small)(req, res, next));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ---------- helpers ----------
@@ -1187,7 +1187,7 @@ async function invoiceData(req) { // everything an invoice page or PDF needs; nu
   }));
   return ({ store: s.data().name, number: d.number, date: d.createdAt ? d.createdAt.toDate().toISOString() : null, name: d.name, phone: d.phone, address: d.address,
     lines, subtotal: d.subtotal == null ? d.total : d.subtotal, discount: d.discount || 0, gstRate: d.gstRate || 0, gst: d.gst || 0, packing: d.packing || 0, delivery: d.delivery || 0, notes: d.notes || "", channel: d.channel || "online",
-    business: { address: (s.data().business || {}).address || "", gstin: (s.data().business || {}).gstin || "", phone: (s.data().business || {}).phone || "" },
+    business: { address: (s.data().business || {}).address || "", gstin: (s.data().business || {}).gstin || "", phone: (s.data().business || {}).phone || "", email: s.data().ownerEmail || "" },
     total: d.total, paid: d.paid || 0, due: d.status === "Cancelled" ? 0 : Math.max(0, d.total - (d.paid || 0)), methods: (d.payments || []).map(p => p.method), status: d.status,
     cancelledAt: d.cancelledAt && d.cancelledAt.toDate ? d.cancelledAt.toDate().toISOString() : null, refunded: d.refunded || 0, refundDue: d.status === "Cancelled" ? Math.max(0, (d.paid || 0) - (d.refunded || 0)) : 0 });
 
@@ -1206,34 +1206,48 @@ function startPdf(res, name, download) {
   doc.pipe(res); return doc;
 }
 function pdfInvoice(doc, d) {
-  const L = 40, R = 555, canc = d.status === "Cancelled";
-  doc.font("B").fontSize(20).fillColor("#1b2133").text(d.store, L, 40, { width: 330 });
-  doc.font("R").fontSize(10).fillColor("#555").text([d.business.address, d.business.phone, d.business.gstin ? "GSTIN " + d.business.gstin : ""].filter(Boolean).join("\n"), L, doc.y + 2, { width: 330 });
-  doc.font("B").fontSize(16).fillColor("#6a3de8").text("INVOICE", 380, 40, { width: R - 380, align: "right" });
-  doc.font("R").fontSize(10).fillColor("#333").text("No. " + d.number + (d.date ? "\nDate " + dmy(d.date) : ""), 380, 62, { width: R - 380, align: "right" });
-  let y = Math.max(doc.y, 100) + 10; doc.moveTo(L, y).lineTo(R, y).lineWidth(1.5).strokeColor("#e6e9f0").stroke(); y += 12;
+  const L = 40, R = 555, canc = d.status === "Cancelled", AC = "#4b2a85", MU = "#7b7592", LN = "#e8e3f3", LV = "#f1ecfb", INK = "#241b3a";
+  const cap = (t, x, y, o) => doc.font("B").fontSize(8).fillColor(MU).text(t.split("").join(String.fromCharCode(8202)), x, y, o);
+  doc.rect(0, 0, 595, 6).fill(AC);
+  doc.font("B").fontSize(22).fillColor(AC).text(d.store, L, 36, { width: 320 });
+  doc.font("R").fontSize(10).fillColor(MU).text([d.business.address, d.business.gstin ? "GSTIN " + d.business.gstin : ""].filter(Boolean).join("\n"), L, doc.y + 2, { width: 320 });
+  const leftEnd = doc.y;
+  doc.font("B").fontSize(13).fillColor(INK).text(d.gst > 0 && d.business.gstin ? "T A X   I N V O I C E" : "I N V O I C E", 340, 38, { width: R - 340, align: "right" });
+  doc.font("R").fontSize(10).fillColor(MU).text("INV-" + String(d.number).replace("ORD-", "") + (d.date ? "\n" + dmy(d.date) : ""), 340, 58, { width: R - 340, align: "right" });
+  let y = Math.max(leftEnd, doc.y) + 18;
   if (canc) { doc.roundedRect(L, y, R - L, 34, 8).lineWidth(1.5).strokeColor("#b3261e").stroke(); doc.font("B").fontSize(16).fillColor("#b3261e").text("CANCELLED" + (d.cancelledAt ? "  ·  " + dmy(d.cancelledAt) : ""), L, y + 9, { width: R - L, align: "center" }); y += 48; }
-  doc.font("R").fontSize(9).fillColor("#777").text("BILLED TO", L, y); doc.font("B").fontSize(12).fillColor("#1b2133").text(d.name || "Customer", L, y + 12);
-  doc.font("R").fontSize(10).fillColor("#444").text([d.phone, d.address].filter(Boolean).join("\n"), L, doc.y + 1, { width: 330 }); y = doc.y + 14;
-  const head = yy => { doc.rect(L, yy, R - L, 22).fill("#f3f4f7"); doc.font("B").fontSize(9.5).fillColor("#444").text("ITEM", L + 8, yy + 7).text("QTY", 330, yy + 7, { width: 40, align: "right" }).text("PRICE", 380, yy + 7, { width: 70, align: "right" }).text("AMOUNT", 460, yy + 7, { width: R - 468, align: "right" }); return yy + 28; };
+  cap("BILLED TO", L, y); doc.font("B").fontSize(12).fillColor(INK).text(d.name || "Customer", L, y + 13);
+  doc.font("R").fontSize(10).fillColor(MU).text([d.phone, d.address].filter(Boolean).join(" · "), L, doc.y + 1, { width: 400 }); y = doc.y + 18;
+  const head = yy => { cap("ITEM", L, yy); cap("AMOUNT", R - 80, yy, { width: 80, align: "right" }); doc.moveTo(L, yy + 14).lineTo(R, yy + 14).lineWidth(1).strokeColor(LN).stroke(); return yy + 22; };
   y = head(y);
   for (const l of d.lines) {
-    const h = Math.max(20, doc.font("R").fontSize(10.5).heightOfString(l.name, { width: 280 }) + 8);
-    if (y + h > 760) { doc.addPage(); y = head(40); }
-    doc.font("R").fontSize(10.5).fillColor("#1b2133").text(l.name, L + 8, y, { width: 280 }); doc.text(String(l.qty), 330, y, { width: 40, align: "right" }).text(money(l.price), 380, y, { width: 70, align: "right" }).text(money(l.amount), 460, y, { width: R - 468, align: "right" });
-    y += h; doc.moveTo(L, y - 3).lineTo(R, y - 3).lineWidth(.5).strokeColor("#e6e9f0").stroke();
+    const h = Math.max(40, doc.font("B").fontSize(10.5).heightOfString(l.name, { width: 330 }) + 24);
+    if (y + h > 740) { doc.addPage(); y = head(40); }
+    doc.roundedRect(L, y, 36, 36, 9).fill(LV);
+    doc.font("B").fontSize(10.5).fillColor(INK).text(l.name, L + 48, y + 2, { width: 330 });
+    doc.font("R").fontSize(9.5).fillColor(MU).text(l.qty + " × " + money(l.price), L + 48, doc.y + 1, { width: 330 });
+    doc.font("B").fontSize(10.5).fillColor(INK).text(money(l.amount), R - 100, y + 2, { width: 100, align: "right" });
+    y += h;
   }
-  const rows = []; if (d.discount > 0 || d.gst > 0 || d.packing > 0 || d.delivery > 0) rows.push(["Subtotal", money(d.subtotal)]);
+  const rows = [["Subtotal", money(d.subtotal)]];
   if (d.discount > 0) rows.push(["Discount", "−" + money(d.discount)]); if (d.gst > 0) rows.push(["GST " + d.gstRate + "%", money(d.gst)]);
-  if (d.packing > 0) rows.push(["Packaging charges", money(d.packing)]); if (d.delivery > 0) rows.push(["Delivery charges", money(d.delivery)]);
-  if (y + 40 + rows.length * 18 + 80 > 780) { doc.addPage(); y = 40; } y += 8;
-  for (const [k, v] of rows) { doc.font("R").fontSize(10.5).fillColor("#444").text(k, 330, y, { width: 120 }).text(v, 460, y, { width: R - 468, align: "right" }); y += 18; }
-  doc.moveTo(330, y).lineTo(R, y).lineWidth(1.5).strokeColor("#e6e9f0").stroke(); y += 6;
-  doc.font("B").fontSize(13).fillColor("#1b2133").text("Total", 330, y, { width: 120 }).text(money(d.total), 460, y, { width: R - 468, align: "right" }); y += 22;
-  doc.font("R").fontSize(10.5).fillColor("#444").text("Paid", 330, y, { width: 120 }).text(money(d.paid), 460, y, { width: R - 468, align: "right" }); y += 18;
-  if (!canc && d.due > 0) { doc.font("B").fillColor("#b3261e").text("Balance due", 330, y, { width: 120 }).text(money(d.due), 460, y, { width: R - 468, align: "right" }); y += 22; }
-  if (!canc) doc.font("B").fontSize(10).fillColor(d.due <= 0 ? "#12805c" : "#b3261e").text(d.due <= 0 ? "PAID" + (d.methods.length ? " · " + [...new Set(d.methods)].join(", ") : "") : "PAYMENT PENDING", L, y + 4);
-  if (d.notes) doc.font("R").fontSize(9.5).fillColor("#555").text("Note: " + d.notes, L, y + 28, { width: 280 });
+  rows.push(["Packaging", money(d.packing)], ["Delivery", money(d.delivery)]);
+  if (y + rows.length * 18 + 190 > 800) { doc.addPage(); y = 40; }
+  doc.moveTo(L, y).lineTo(R, y).lineWidth(1).strokeColor(LN).stroke(); y += 10;
+  for (const [k, v] of rows) { doc.font("R").fontSize(10.5).fillColor(MU).text(k, L, y, { width: 200 }).text(v, R - 100, y, { width: 100, align: "right" }); y += 18; }
+  doc.moveTo(L, y + 2).lineTo(R, y + 2).lineWidth(1).strokeColor(LN).stroke(); y += 12;
+  doc.font("B").fontSize(12).fillColor(INK).text("Total", L, y + 6, { width: 200 }); doc.font("B").fontSize(20).fillColor(AC).text(money(d.total), R - 200, y, { width: 200, align: "right" }); y += 30;
+  if (d.gst <= 0) { doc.font("R").fontSize(9.5).fillColor(MU).text("Prices include GST", L, y); y += 16; }
+  y += 6; doc.roundedRect(L, y, R - L, 50, 12).fill(LV);
+  const kinds = [...new Set(d.methods)].join(", ");
+  doc.font("B").fontSize(11).fillColor(INK).text(canc ? "Cancelled" : d.due <= 0 ? "Paid" + (kinds ? " via " + kinds : "") : "Payment pending", L + 16, y + 10, { width: 340 });
+  doc.font("R").fontSize(9.5).fillColor(MU).text(canc ? (d.refundDue > 0 ? "Refund due " + money(d.refundDue) : d.refunded > 0 ? "Refunded " + money(d.refunded) : "Nothing to pay") : "Balance due " + money(d.due), L + 16, y + 28, { width: 340 });
+  if (!canc) { const ok = d.due <= 0, t = ok ? "PAID" : "PENDING"; doc.roundedRect(R - 84, y + 14, 68, 22, 11).fill(ok ? "#dcf0e8" : "#f6dcda"); doc.font("B").fontSize(9.5).fillColor(ok ? "#12805c" : "#b3261e").text(t, R - 84, y + 21, { width: 68, align: "center" }); }
+  y += 62;
+  if (d.notes) { doc.font("R").fontSize(9.5).fillColor(MU).text("Note: " + d.notes, L, y, { width: R - L }); y = doc.y + 8; }
+  y += 14; doc.font("B").fontSize(10.5).fillColor(INK).text("Thank you for shopping with us", L, y, { width: R - L, align: "center" });
+  const contact = [d.business.phone ? "WhatsApp " + d.business.phone : "", d.business.email].filter(Boolean).join(" · ");
+  if (contact) doc.font("R").fontSize(9.5).fillColor(MU).text(contact, L, doc.y + 2, { width: R - L, align: "center" });
 }
 app.get("/api/invoice/:slug/:number/pdf", h(async (req, res) => {
   const d = await invoiceData(req); if (!d) return res.status(404).json({ error: "Invoice not found" });
@@ -1280,11 +1294,31 @@ app.get("/api/export/:slug/invoices.pdf", h(async (req, res) => {
   doc.end();
 }));
 
+
+// ---------- move the whole shop to another copy of this app (Firebase -> Cloudflare) ----------
+const MOVE = ["products", "photos", "brands", "tags", "suppliers", "purchases", "orders", "customers", "reviews", "drafts", "trash", "users", "stats"];
+const packV = v => v == null ? v : v && typeof v.toMillis === "function" ? { __ts: v.toMillis() } : Buffer.isBuffer(v) || v instanceof Uint8Array ? { __b: Buffer.from(v).toString("base64") } : Array.isArray(v) ? v.map(packV) : typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, packV(x)])) : v;
+const unpackV = v => v == null ? v : Array.isArray(v) ? v.map(unpackV) : typeof v === "object" ? (v.__ts !== undefined ? admin.firestore.Timestamp.fromMillis(v.__ts) : v.__b !== undefined ? Buffer.from(v.__b, "base64") : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unpackV(x)]))) : v;
+app.get(m + "/move-out", auth, ownerOnly, h(async (req, res) => { // one page of the shop at a time
+  const c = String(req.query.c || "");
+  if (c === "store") { const d = (await store(req.params.slug).get()).data() || {}; delete d.adminKey; return res.json({ docs: [{ id: "store", data: packV(d) }], next: "" }); }
+  if (!MOVE.includes(c)) throw new Bad("Unknown part of the shop.");
+  const n = c === "photos" ? 8 : 150; let q = sub(req, c).orderBy(admin.firestore.FieldPath.documentId()); if (req.query.after) q = q.startAfter(String(req.query.after));
+  const snap = await q.limit(n).get(); res.json({ docs: snap.docs.map(d => ({ id: d.id, data: packV(d.data()) })), next: snap.docs.length === n ? snap.docs[n - 1].id : "" });
+}));
+app.post(m + "/move-in", auth, ownerOnly, h(async (req, res) => {
+  const c = String(req.body.c || ""), docs = Array.isArray(req.body.docs) ? req.body.docs : [];
+  if (c === "store") { const d = unpackV(docs[0] ? docs[0].data : {}); await store(req.params.slug).set(d, { merge: true }); return res.json({ ok: true, n: 1 }); }
+  if (!MOVE.includes(c)) throw new Bad("Unknown part of the shop.");
+  const b = db.batch(); docs.slice(0, 200).forEach(x => b.set(sub(req, c).doc(String(x.id)), unpackV(x.data))); await b.commit(); res.json({ ok: true, n: docs.length });
+}));
+
 // ---------- pages ----------
 const page = f => (req, res) => res.sendFile(path.join(__dirname, "public", f));
 app.get("/", page("store.html"));
 app.get("/s/:slug", (req, res) => res.redirect("/"));
 app.get("/manage", page("manage.html"));
+app.get("/move", page("move.html"));
 app.get("/invoice/:slug/:number", page("invoice.html"));
 
 module.exports = app; // Vercel uses this export

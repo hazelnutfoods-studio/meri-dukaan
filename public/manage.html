@@ -630,6 +630,7 @@ function openProdSheet(id) {
   ${p.qty != null ? `<div class="card" style="margin:0 0 12px;padding:12px 13px"><div class="row nw" style="justify-content:space-between;margin-bottom:4px"><div class="cap">Stock by expiry · soonest first</div>${can("stock") ? `<button class="lnk" onclick="openAdjust('${p.id}','by')">+ Add stock</button>` : ""}</div>${batchesOf(p).length ? batchesOf(p).map((b, i) => `<div class="row nw" style="justify-content:space-between;align-items:center;gap:8px;padding:8px 0;${i ? "border-top:1px solid var(--line)" : ""}"><div><b>${b.qty} pcs</b> <span class="mute">· ${esc(fDate(b.expiry))}</span></div><div class="row nw" style="gap:8px;align-items:center">${bTag(b)}${can("stock") ? `<button class="lnk" onclick="openBatch('${p.id}','${b.id}')">Edit</button>` : ""}</div></div>`).join("") : '<div class="mute" style="padding:6px 0">No stock on the shelf.</div>'}</div>` : ""}
   ${!p.active && needs(p).length ? `<div class="card" style="background:var(--wnb);border-color:transparent;color:var(--wn);margin:0 0 12px;padding:11px 13px"><b>Needs details</b><div>Before it can go live, add: ${esc(needs(p).join(", "))}.</div></div>` : ""}
   <div class="card" style="margin:0 0 12px;padding:4px 13px">${can("cost") ? row("Cost price", p.cost == null ? "" : inr(p.cost), `openProd('${p.id}')`) : ""}${row("Brand", p.brand, `openProd('${p.id}')`)}${row("Supplier", p.supplier, `openProd('${p.id}')`)}${row("EAN / barcode", p.barcode, `scanEan('${p.id}')`)}${row("SKU", p.sku, `openProd('${p.id}')`)}
+  <div class="drow"><span class="mute">Tags</span>${(p.tags || []).length ? `<span style="text-align:right">${p.tags.map(t => `<span class="chip">${esc(t)}</span>`).join("")}</span>` : can("tags") ? `<button class="lnk" onclick="openProd('${p.id}')">+ Add</button>` : "<b>—</b>"}</div>
   ${par || kids.length ? `<div class="drow"><span class="mute">Merged</span><b>${par ? "Under " + esc(par.name) : kids.length + " merged under it"}</b></div>` : ""}
   <div class="drow"><span class="mute">Online store</span>${owner() ? `<span class="row nw" style="gap:8px"><b>${p.active ? "Live" : "Off"}</b><label class="sw"><input type="checkbox" ${p.active ? "checked" : ""} ${p.active || !needsAll(p).length ? "" : "disabled"} onchange="liveSheet('${p.id}',this.checked)" aria-label="Live on the online store"><i></i></label></span>` : `<b>${p.active ? "Live" : "Off"}</b>`}</div></div>
   <div class="acts" style="margin-top:6px">${can("stock") ? `<button class="btn g grow" onclick="openAdjust('${p.id}','by')">Update stock</button>` : ""}${can("add") ? `<button class="btn g grow" onclick="scanEan('${p.id}')">${ic("camera")} ${p.barcode ? "Change EAN" : "Add EAN"}</button>` : ""}${can("add") || can("stock") || can("cost") || can("tags") ? `<button class="btn grow" onclick="openProd('${p.id}')">${ic("edit")} Edit product</button>` : ""}</div>
@@ -766,6 +767,17 @@ function cbBlur(inp) {
   }, 120);
 }
 const stq = d => { const i = document.querySelector('#dlg input[name=qty]'); if (i && !i.disabled) { i.value = Math.max(0, (Math.floor(+i.value) || 0) + d); } };
+const tagChip = (name, on, off) => `<label class="tg"><input type="checkbox" name="tag" value="${esc(name)}" ${on ? "checked" : ""} ${off ? "disabled" : ""}>${esc(name)}</label>`;
+async function addTagHere() { // make a new tag without leaving the product page; it is ticked for this product straight away
+  const i = $("ntg"), name = i.value.trim(); if (!name) return alert("Type the tag name first.");
+  const have = [...document.querySelectorAll('#tgs input[name=tag]')].find(x => x.value.toLowerCase() == name.toLowerCase());
+  if (have) { have.checked = true; i.value = ""; return; }
+  try {
+    await api(base + "/tags", "POST", { name }); T = await api(base + "/tags");
+    const nm = (T.find(t => t.name.toLowerCase() == name.toLowerCase()) || { name }).name, box = $("tgs"), none = $("tgnone"); if (none) none.remove();
+    box.insertAdjacentHTML("beforeend", tagChip(nm, true, false)); i.value = "";
+  } catch (e) { alert(e.message); }
+}
 function addBatchRow() {
   const box = $("xbs"); if (!box) return; XB++;
   const r = document.createElement("div"); r.className = "xb";
@@ -818,6 +830,9 @@ function openProd(id, pre) {
   <div class="sec">Brand &amp; supplier</div>
   <label>Brand (optional)${combo("brand", p.brand, "Search or pick a brand", !can("add"))}</label>
   <label>Supplier${combo("supplier", p.supplier, "Search or pick a supplier", !can("add"))}</label>
+  <div class="sec">Tags <span class="mute">· each tag is a section on your store</span></div>
+  <div id="tgs" style="margin:0 0 6px">${T.map(t => tagChip(t.name, (p.tags || []).includes(t.name), !can("tags"))).join("")}${T.length ? "" : '<span class="mute" id="tgnone">No tags yet.</span>'}</div>
+  ${owner() ? `<div class="row nw" style="gap:8px;margin:6px 0 4px"><input id="ntg" placeholder="New tag, e.g. Chocolate" maxlength="30" autocomplete="off" style="margin:0;flex:1;min-width:0" onkeydown="if(event.key==='Enter'){event.preventDefault();addTagHere()}"><button type="button" class="btn g" style="flex:none" onclick="addTagHere()">${ic("plus", 18)} Add tag</button></div>` : (T.length ? "" : '<div class="mute">Only the owner can create tags.</div>')}
   <div class="sec">Variant <span class="mute">· optional</span></div>
   <div class="fg keep"><label>Flavour<input name="o1" ${dis("add")} value="${esc(p.o1)}" placeholder="e.g. Hazelnut"></label>
   <label>Weight<span class="row nw" style="gap:6px"><input name="o2n" inputmode="decimal" ${dis("add")} value="${esc(w.n)}" placeholder="200" style="margin:0;min-width:0;flex:1"><select name="o2u" ${dis("add")} style="margin:0;width:78px;flex:none">${(w.u == "" ? [""] : []).concat(WU).map(u => `<option value="${u}" ${u == w.u ? "selected" : ""}>${u || "as typed"}</option>`).join("")}</select></span></label></div>
@@ -830,7 +845,7 @@ function openProd(id, pre) {
   <label>Product code (SKU, optional)<input name="sku" ${dis("add")} value="${esc(p.sku)}" placeholder="Made for you if left empty"></label>
   ${owner() ? `<label>Crossed-out price / MRP (₹, optional)<input name="mrp" type="number" min="0" step="any" value="${esc(p.mrp || "")}" placeholder="Shows a discount if higher than the selling price"></label>` : ""}
   <label>Alert when stock is this low<input name="lowAt" type="number" min="0" ${dis("stock")} value="${esc(p.lowAt)}"></label>
-  ${T.length ? `<label>Tags (optional)</label><div style="margin:6px 0 10px">${T.map(t => `<label class="tg"><input type="checkbox" name="tag" value="${esc(t.name)}" ${(p.tags || []).includes(t.name) ? "checked" : ""} ${dis("tags")}>${esc(t.name)}</label>`).join("")}</div>` : ""}</details>
+</details>
   <div class="pf-foot"><button type="button" class="btn g grow" onclick="${id ? `openProdSheet('${id}')` : "closeM()"}">Cancel</button><button class="btn grow" id="sv">Save product</button></div></form>`);
   $("dlg").classList.add("tall");
 }

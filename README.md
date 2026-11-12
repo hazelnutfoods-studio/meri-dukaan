@@ -156,3 +156,6 @@ The shop sends email for three things: the **login code** customers type to sign
 
 - **Excel and brand:** Export now includes a Brand column. Import accepts an Excel (.xlsx) file directly, or a CSV; new brands are added to the Brand list automatically.
 - **Product pages:** Add/Edit product is one tidy page (photos with a cover, stock with expiry and extra batches, search-and-pick Brand/Supplier/Merge under, weight with g/kg/pcs, Live/Featured switches, sticky Save bar). Product details shows price, stock by expiry, and quick “+ Add” links. **Update stock** adds or removes stock.
+
+## Moving the shop to the Cloudflare edition
+Open `/move` on this website, type your owner password and press **Save shop to a file**. Then follow the steps in the Cloudflare edition's README.
